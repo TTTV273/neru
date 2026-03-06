@@ -13,6 +13,7 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/y3owk1n/neru/internal/core/infra/bridge"
 	"go.uber.org/zap"
 )
 
@@ -93,6 +94,12 @@ func (et *EventTap) SetHotkeys(hotkeys []string) {
 
 	C.setEventTapHotkeys(et.handle, cHotkeysPtr, C.int(len(cHotkeys)))
 	et.logger.Debug("Event tap hotkeys set")
+}
+
+// SetKeyboardLayout configures the reference keyboard layout used by key translation.
+// Returns false when an explicit layout ID is provided but cannot be resolved.
+func (et *EventTap) SetKeyboardLayout(layoutID string) bool {
+	return bridge.SetReferenceKeyboardLayout(layoutID)
 }
 
 // Disable deactivates the event tap, stopping keyboard event capture.

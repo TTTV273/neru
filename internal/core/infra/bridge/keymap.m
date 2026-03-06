@@ -24,6 +24,15 @@ static NSDictionary<NSNumber *, NSString *> *gKeyCodeToNameMap = nil;
 static TISInputSourceRef gCurrentInputSource = nil;
 static const UCKeyboardLayout *gCurrentKeyboardLayout = nil;
 
+/// user-configured input source ID (nil/empty means auto-detect fallback order)
+static NSString *gConfiguredInputSourceID = nil;
+/// resolved and cached reference input source used for key translation
+static TISInputSourceRef gReferenceInputSource = nil;
+/// true when using current-layout fallback because no stable latin layout was found
+static BOOL gUsesCurrentLayoutFallback = NO;
+/// whether the configured layout ID was resolved successfully (or no explicit ID was set)
+static BOOL gConfiguredInputSourceResolved = YES;
+
 /// cached keycode to char maps with common modifiers like shift and caps
 /// to avoid UCKeyTranslate calls during run
 static NSDictionary<NSNumber *, NSString *> *gKeyCodeToCharUnshifted = nil;
@@ -64,6 +73,213 @@ static NSString *translateKeyCodeViaLayout(const UCKeyboardLayout *keyboardLayou
 	}
 
 	return [NSString stringWithCharacters:chars length:actualLength];
+}
+
+#pragma mark - Input Source Resolution
+
+static BOOL inputSourceHasUnicodeLayoutData(TISInputSourceRef inputSource) {
+	if (!inputSource) {
+		return NO;
+	}
+
+	CFDataRef layoutData = (CFDataRef)TISGetInputSourceProperty(inputSource, kTISPropertyUnicodeKeyLayoutData);
+
+	return layoutData && CFDataGetLength(layoutData) > 0;
+}
+
+static TISInputSourceRef copyKeyboardLayoutInputSourceByID(NSString *inputSourceID) {
+	if (!inputSourceID || inputSourceID.length == 0) {
+		return nil;
+	}
+
+	NSDictionary *filter = @{(__bridge NSString *)kTISPropertyInputSourceID : inputSourceID};
+	CFArrayRef inputSourceList = TISCreateInputSourceList((__bridge CFDictionaryRef)filter, false);
+	if (!inputSourceList) {
+		return nil;
+	}
+
+	TISInputSourceRef matched = nil;
+	CFIndex sourceCount = CFArrayGetCount(inputSourceList);
+	for (CFIndex i = 0; i < sourceCount; i++) {
+		TISInputSourceRef candidate = (TISInputSourceRef)CFArrayGetValueAtIndex(inputSourceList, i);
+		if (inputSourceHasUnicodeLayoutData(candidate)) {
+			CFRetain(candidate);
+			matched = candidate;
+			break;
+		}
+	}
+
+	CFRelease(inputSourceList);
+
+	return matched;
+}
+
+static BOOL inputSourceSupportsEnglish(TISInputSourceRef inputSource) {
+	if (!inputSource) {
+		return NO;
+	}
+
+	CFArrayRef languages = (CFArrayRef)TISGetInputSourceProperty(inputSource, kTISPropertyInputSourceLanguages);
+	if (!languages) {
+		return NO;
+	}
+
+	CFIndex languageCount = CFArrayGetCount(languages);
+	for (CFIndex i = 0; i < languageCount; i++) {
+		CFTypeRef languageValue = CFArrayGetValueAtIndex(languages, i);
+		if (!languageValue || CFGetTypeID(languageValue) != CFStringGetTypeID()) {
+			continue;
+		}
+
+		NSString *language = (__bridge NSString *)languageValue;
+		if ([language caseInsensitiveCompare:@"en"] == NSOrderedSame || [language hasPrefix:@"en-"] ||
+		    [language hasPrefix:@"en_"]) {
+			return YES;
+		}
+	}
+
+	return NO;
+}
+
+static TISInputSourceRef copyFirstEnglishKeyboardLayoutInputSource(void) {
+	NSDictionary *filter =
+	    @{(__bridge NSString *)kTISPropertyInputSourceType : (__bridge NSString *)kTISTypeKeyboardLayout};
+	CFArrayRef inputSourceList = TISCreateInputSourceList((__bridge CFDictionaryRef)filter, false);
+	if (!inputSourceList) {
+		return nil;
+	}
+
+	TISInputSourceRef matched = nil;
+	CFIndex sourceCount = CFArrayGetCount(inputSourceList);
+	for (CFIndex i = 0; i < sourceCount; i++) {
+		TISInputSourceRef candidate = (TISInputSourceRef)CFArrayGetValueAtIndex(inputSourceList, i);
+		if (inputSourceHasUnicodeLayoutData(candidate) && inputSourceSupportsEnglish(candidate)) {
+			CFRetain(candidate);
+			matched = candidate;
+			break;
+		}
+	}
+
+	CFRelease(inputSourceList);
+
+	return matched;
+}
+
+static TISInputSourceRef copyCurrentKeyboardLayoutInputSourceWithData(void) {
+	TISInputSourceRef inputSource = TISCopyCurrentKeyboardLayoutInputSource();
+	if (!inputSource) {
+		return nil;
+	}
+
+	if (!inputSourceHasUnicodeLayoutData(inputSource)) {
+		CFRelease(inputSource);
+		return nil;
+	}
+
+	return inputSource;
+}
+
+static void clearResolvedReferenceInputSourceLocked(void) {
+	if (gReferenceInputSource) {
+		CFRelease(gReferenceInputSource);
+		gReferenceInputSource = nil;
+	}
+
+	gUsesCurrentLayoutFallback = NO;
+	gConfiguredInputSourceResolved = YES;
+}
+
+static TISInputSourceRef copyResolvedReferenceInputSource(BOOL *configuredLayoutResolvedOut,
+                                                          BOOL *usesCurrentFallbackOut) {
+	[gKeymapLock lock];
+	TISInputSourceRef cachedInputSource = gReferenceInputSource;
+	NSString *configuredID = [gConfiguredInputSourceID copy];
+	BOOL cachedConfiguredResolved = gConfiguredInputSourceResolved;
+	BOOL cachedUsesCurrentFallback = gUsesCurrentLayoutFallback;
+	if (cachedInputSource) {
+		CFRetain(cachedInputSource);
+	}
+	[gKeymapLock unlock];
+
+	if (cachedInputSource) {
+		if (configuredLayoutResolvedOut) {
+			*configuredLayoutResolvedOut = cachedConfiguredResolved;
+		}
+
+		if (usesCurrentFallbackOut) {
+			*usesCurrentFallbackOut = cachedUsesCurrentFallback;
+		}
+
+		return cachedInputSource;
+	}
+
+	NSArray<NSString *> *preferredIDs = @[
+		@"com.apple.keylayout.ABC",
+		@"com.apple.keylayout.US",
+	];
+
+	TISInputSourceRef resolvedInputSource = nil;
+	BOOL usesCurrentFallback = NO;
+	BOOL configuredResolved = YES;
+
+	if (configuredID.length > 0) {
+		resolvedInputSource = copyKeyboardLayoutInputSourceByID(configuredID);
+		if (!resolvedInputSource) {
+			configuredResolved = NO;
+		}
+	}
+
+	if (!resolvedInputSource) {
+		for (NSString *candidateID in preferredIDs) {
+			resolvedInputSource = copyKeyboardLayoutInputSourceByID(candidateID);
+			if (resolvedInputSource) {
+				break;
+			}
+		}
+	}
+
+	if (!resolvedInputSource) {
+		resolvedInputSource = copyFirstEnglishKeyboardLayoutInputSource();
+	}
+
+	if (!resolvedInputSource) {
+		resolvedInputSource = copyCurrentKeyboardLayoutInputSourceWithData();
+		if (resolvedInputSource) {
+			usesCurrentFallback = YES;
+		}
+	}
+
+	[gKeymapLock lock];
+	if (!gReferenceInputSource && resolvedInputSource) {
+		gReferenceInputSource = resolvedInputSource;
+		gUsesCurrentLayoutFallback = usesCurrentFallback;
+		gConfiguredInputSourceResolved = configuredResolved;
+		CFRetain(gReferenceInputSource);
+		cachedInputSource = gReferenceInputSource;
+	} else if (gReferenceInputSource) {
+		cachedInputSource = gReferenceInputSource;
+		CFRetain(cachedInputSource);
+		if (resolvedInputSource) {
+			CFRelease(resolvedInputSource);
+		}
+	} else {
+		gConfiguredInputSourceResolved = configuredResolved;
+		cachedInputSource = nil;
+	}
+
+	BOOL finalConfiguredResolved = gConfiguredInputSourceResolved;
+	BOOL finalUsesCurrentFallback = gUsesCurrentLayoutFallback;
+	[gKeymapLock unlock];
+
+	if (configuredLayoutResolvedOut) {
+		*configuredLayoutResolvedOut = finalConfiguredResolved;
+	}
+
+	if (usesCurrentFallbackOut) {
+		*usesCurrentFallbackOut = finalUsesCurrentFallback;
+	}
+
+	return cachedInputSource;
 }
 
 #pragma mark - QWERTY Fallback
@@ -408,11 +624,12 @@ static void buildLayoutMaps(void) {
 		UInt32 capsMod = (alphaLock >> 8) & 0xFF;
 		UInt32 shiftCapsMod = shiftMod | capsMod;
 
-		/// try to get the current keyboard layout
-		TISInputSourceRef inputSource = TISCopyCurrentKeyboardLayoutInputSource();
+		// Resolve the reference input source once and reuse it until config reload.
+		// This keeps key interpretation stable across active layout switches.
+		TISInputSourceRef inputSource = copyResolvedReferenceInputSource(NULL, NULL);
 		if (!inputSource) {
-			// no layout source available — populate with QWERTY fallback
-			// so special keys and basic key lookups still work
+			// no usable layout source available — populate with QWERTY fallback
+			// so special keys and basic key lookups still work.
 			buildQWERTYNameMaps(nameToCode, codeToName);
 			buildQWERTYCharMaps(unshifted, shifted, caps, shiftedCaps);
 
@@ -429,8 +646,8 @@ static void buildLayoutMaps(void) {
 
 		CFDataRef layoutData = (CFDataRef)TISGetInputSourceProperty(inputSource, kTISPropertyUnicodeKeyLayoutData);
 		if (!layoutData) {
-			// layout source exists but has no uchr data (e.g. some CJK IMEs)
-			// populate with QWERTY fallback, keep previous layout pointer if we had one
+			// layout source exists but has no uchr data
+			// populate with QWERTY fallback, keep previous layout pointer if we had one.
 			CFRelease(inputSource);
 			buildQWERTYNameMaps(nameToCode, codeToName);
 			buildQWERTYCharMaps(unshifted, shifted, caps, shiftedCaps);
@@ -529,11 +746,27 @@ static void buildLayoutMaps(void) {
 /// dispatched to the main queue, ensuring all access is serialized on the main thread.
 static void handleKeyboardLayoutChanged(CFNotificationCenterRef center, void *observer, CFNotificationName name,
                                         const void *object, CFDictionaryRef userInfo) {
+	[gKeymapLock lock];
+	BOOL shouldRebuild = gUsesCurrentLayoutFallback;
+	[gKeymapLock unlock];
+
+	// With a resolved reference layout (configured or auto-detected), active
+	// layout switches should not affect key interpretation.
+	if (!shouldRebuild) {
+		return;
+	}
+
 	if (gLayoutChangeDebounceBlock) {
 		dispatch_block_cancel(gLayoutChangeDebounceBlock);
 	}
 
 	gLayoutChangeDebounceBlock = dispatch_block_create(0, ^{
+		[gKeymapLock lock];
+		// Re-resolve when current-layout fallback is active so layout switches
+		// pick up the new selected source.
+		clearResolvedReferenceInputSourceLocked();
+		[gKeymapLock unlock];
+
 		buildLayoutMaps();
 		KeymapLayoutChangeCallback cb = atomic_load(&gLayoutChangeCallback);
 		if (cb)
@@ -800,6 +1033,11 @@ void refreshKeyboardLayoutMaps(void) {
 			gLayoutChangeDebounceBlock = nil;
 		}
 		initializeKeyMaps();
+		// Clear cached reference so buildLayoutMaps re-resolves from scratch.
+		// Without this the rebuild would be a no-op when a stable reference is locked.
+		[gKeymapLock lock];
+		clearResolvedReferenceInputSourceLocked();
+		[gKeymapLock unlock];
 		buildLayoutMaps();
 
 		KeymapLayoutChangeCallback cb = atomic_load(&gLayoutChangeCallback);
@@ -812,6 +1050,80 @@ void refreshKeyboardLayoutMaps(void) {
 	} else {
 		dispatch_async(dispatch_get_main_queue(), cancelAndRebuild);
 	}
+}
+
+int setReferenceKeyboardLayout(const char *inputSourceID) {
+	NSString *trimmedInputSourceID = nil;
+	if (inputSourceID) {
+		trimmedInputSourceID =
+		    [@(inputSourceID) stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+		if (trimmedInputSourceID.length == 0) {
+			trimmedInputSourceID = nil;
+		}
+	}
+
+	__block BOOL configuredResolved = YES;
+
+	void (^applyReferenceLayout)(void) = ^{
+		initializeKeyMaps();
+
+		[gKeymapLock lock];
+		gConfiguredInputSourceID = [trimmedInputSourceID copy];
+		clearResolvedReferenceInputSourceLocked();
+		[gKeymapLock unlock];
+
+		buildLayoutMaps();
+		atomic_store_explicit(&gLayoutMapsInitialized, true, memory_order_release);
+
+		[gKeymapLock lock];
+		configuredResolved = gConfiguredInputSourceResolved;
+		[gKeymapLock unlock];
+
+		KeymapLayoutChangeCallback cb = atomic_load(&gLayoutChangeCallback);
+		if (cb) {
+			cb();
+		}
+	};
+
+	if ([NSThread isMainThread]) {
+		applyReferenceLayout();
+	} else {
+		NSLock *applyLock = [[NSLock alloc] init];
+		__block BOOL didApply = NO;
+		void (^applyReferenceLayoutOnce)(void) = ^{
+			[applyLock lock];
+			BOOL shouldApply = !didApply;
+			if (shouldApply) {
+				didApply = YES;
+			}
+			[applyLock unlock];
+
+			if (shouldApply) {
+				applyReferenceLayout();
+			}
+		};
+
+		dispatch_semaphore_t completed = dispatch_semaphore_create(0);
+		dispatch_async(dispatch_get_main_queue(), ^{
+			applyReferenceLayoutOnce();
+			dispatch_semaphore_signal(completed);
+		});
+
+		dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(500 * NSEC_PER_MSEC));
+		if (dispatch_semaphore_wait(completed, timeout) != 0) {
+			// In tests/CLI runs the main queue may not be pumping.
+			applyReferenceLayoutOnce();
+		}
+
+		// Re-read the authoritative value under lock to avoid a data race:
+		// the __block configuredResolved variable may be concurrently written
+		// by the main queue thread and read here without synchronization.
+		[gKeymapLock lock];
+		configuredResolved = gConfiguredInputSourceResolved;
+		[gKeymapLock unlock];
+	}
+
+	return configuredResolved ? 1 : 0;
 }
 
 void setKeymapLayoutChangeCallback(KeymapLayoutChangeCallback callback) {

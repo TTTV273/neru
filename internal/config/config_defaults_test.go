@@ -18,4 +18,13 @@ func TestDefaultConfig(t *testing.T) {
 			t.Error("Expected Systray.Enabled to be true by default")
 		}
 	})
+
+	t.Run("General Keyboard Layout Defaults", func(t *testing.T) {
+		if cfg.General.KBLayoutToUse != "" {
+			t.Errorf(
+				"Expected General.KBLayoutToUse to be empty by default, got %q",
+				cfg.General.KBLayoutToUse,
+			)
+		}
+	})
 }

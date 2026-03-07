@@ -3,6 +3,7 @@ package modes
 import (
 	"context"
 	"image"
+	"time"
 
 	"github.com/y3owk1n/neru/internal/core/domain"
 	"github.com/y3owk1n/neru/internal/core/infra/accessibility"
@@ -10,6 +11,15 @@ import (
 	"github.com/y3owk1n/neru/internal/ui/coordinates"
 	"github.com/y3owk1n/neru/internal/ui/overlay"
 	"go.uber.org/zap"
+)
+
+const (
+	// postActionSettleDelay is the time to wait after a click action completes
+	// before moving the cursor for restoration/centering. This gives the target
+	// application time to finish processing the mouseUp event. Without this
+	// delay, cursor restoration can race with click processing in slow apps
+	// (Electron, web views) causing missed clicks.
+	postActionSettleDelay = 75 * time.Millisecond
 )
 
 // ExitMode exits the current mode. Safe to call from any goroutine.
@@ -123,6 +133,12 @@ func (h *Handler) handleCursorRestoration() {
 	}
 
 	if shouldRestore || shouldCenter {
+		// If a click action was just performed, wait for the target app to
+		// finish processing the click before we move the cursor away.
+		if h.cursorState.WasActionPerformed() {
+			time.Sleep(postActionSettleDelay)
+		}
+
 		currentBounds := bridge.ActiveScreenBounds()
 
 		var target image.Point

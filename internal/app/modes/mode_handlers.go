@@ -29,6 +29,15 @@ func (h *Handler) executeActionAtPoint(action *string, point image.Point) {
 		h.logger.Error("Failed to perform pending action", zap.Error(performActionErr))
 	}
 
+	// Signal that a click was just performed so handleCursorRestoration
+	// can insert a settling delay before moving the cursor.
+	// Skip move-mouse actions — they don't produce clicks that need settling.
+	if performActionErr == nil &&
+		*action != "move_mouse" &&
+		*action != "move_mouse_relative" {
+		h.cursorState.MarkActionPerformed()
+	}
+
 	h.exitModeLocked()
 }
 
@@ -77,6 +86,10 @@ func (h *Handler) handleHintsModeKey(key string) {
 		}
 
 		if h.shouldAutoExit(h.config.Hints.AutoExitActions, actionName) {
+			if !h.actionService.IsMoveMouseKey(key) {
+				h.cursorState.MarkActionPerformed()
+			}
+
 			h.exitModeLocked()
 
 			return
@@ -180,6 +193,10 @@ func (h *Handler) handleGridModeKey(key string) {
 		}
 
 		if h.shouldAutoExit(h.config.Grid.AutoExitActions, actionName) {
+			if !h.actionService.IsMoveMouseKey(key) {
+				h.cursorState.MarkActionPerformed()
+			}
+
 			h.exitModeLocked()
 		}
 

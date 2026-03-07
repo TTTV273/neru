@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"sync"
 
 	"github.com/y3owk1n/neru/internal/config"
 	"github.com/y3owk1n/neru/internal/core"
@@ -15,6 +16,7 @@ import (
 type HintService struct {
 	BaseService
 
+	mu        sync.RWMutex
 	generator hint.Generator
 	config    config.HintsConfig
 	logger    *zap.Logger
@@ -42,14 +44,19 @@ func (s *HintService) ShowHints(
 ) ([]*hint.Interface, error) {
 	s.logger.Info("Showing hints")
 
+	s.mu.RLock()
+	cfg := s.config
+	gen := s.generator
+	s.mu.RUnlock()
+
 	filter := ports.DefaultElementFilter()
 
 	// Populate filter with configuration
-	filter.IncludeMenubar = s.config.IncludeMenubarHints
-	filter.AdditionalMenubarTargets = s.config.AdditionalMenubarHintsTargets
-	filter.IncludeDock = s.config.IncludeDockHints
-	filter.IncludeNotificationCenter = s.config.IncludeNCHints
-	filter.IncludeStageManager = s.config.IncludeStageManagerHints
+	filter.IncludeMenubar = cfg.IncludeMenubarHints
+	filter.AdditionalMenubarTargets = cfg.AdditionalMenubarHintsTargets
+	filter.IncludeDock = cfg.IncludeDockHints
+	filter.IncludeNotificationCenter = cfg.IncludeNCHints
+	filter.IncludeStageManager = cfg.IncludeStageManagerHints
 
 	// Get clickable elements
 	elements, elementsErr := s.accessibility.ClickableElements(ctx, filter)
@@ -68,7 +75,7 @@ func (s *HintService) ShowHints(
 	s.logger.Info("Found clickable elements", zap.Int("count", len(elements)))
 
 	// Generate hints
-	hints, elementsErr := s.generator.Generate(ctx, elements)
+	hints, elementsErr := gen.Generate(ctx, elements)
 	if elementsErr != nil {
 		s.logger.Error("Failed to generate hints", zap.Error(elementsErr))
 
@@ -128,6 +135,21 @@ func (s *HintService) RefreshHints(ctx context.Context) error {
 	return nil
 }
 
+// UpdateConfig updates the hints configuration.
+// This allows changing hint filter settings at runtime.
+func (s *HintService) UpdateConfig(config config.HintsConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.config = config
+
+	s.logger.Info("Hints configuration updated",
+		zap.Bool("include_menubar", config.IncludeMenubarHints),
+		zap.Bool("include_dock", config.IncludeDockHints),
+		zap.Bool("include_nc", config.IncludeNCHints),
+		zap.Bool("include_stage_manager", config.IncludeStageManagerHints))
+}
+
 // UpdateGenerator updates the hint generator.
 // This allows changing the hint generation strategy at runtime.
 func (s *HintService) UpdateGenerator(_ context.Context, generator hint.Generator) {
@@ -137,6 +159,10 @@ func (s *HintService) UpdateGenerator(_ context.Context, generator hint.Generato
 		return
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.generator = generator
+
 	s.logger.Info("Hint generator updated")
 }

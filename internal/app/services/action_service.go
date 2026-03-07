@@ -4,6 +4,7 @@ import (
 	"context"
 	"image"
 	"strings"
+	"sync"
 
 	"github.com/y3owk1n/neru/internal/config"
 	"github.com/y3owk1n/neru/internal/core"
@@ -17,6 +18,7 @@ import (
 type ActionService struct {
 	BaseService
 
+	mu            sync.RWMutex
 	config        config.ActionConfig
 	keyBindings   config.ActionKeyBindingsCfg
 	moveMouseStep int
@@ -39,6 +41,22 @@ func NewActionService(
 		moveMouseStep: moveMouseStep,
 		logger:        logger,
 	}
+}
+
+// UpdateConfig updates the action service configuration.
+// This allows changing action key bindings and move mouse step at runtime.
+func (s *ActionService) UpdateConfig(actionConfig config.ActionConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.config = actionConfig
+	s.keyBindings = actionConfig.KeyBindings
+	s.moveMouseStep = actionConfig.MoveMouseStep
+
+	s.logger.Info("Action configuration updated",
+		zap.String("left_click", actionConfig.KeyBindings.LeftClick),
+		zap.String("right_click", actionConfig.KeyBindings.RightClick),
+		zap.Int("move_mouse_step", actionConfig.MoveMouseStep))
 }
 
 // ExecuteAction performs the specified action on the given element.
@@ -230,7 +248,9 @@ func (s *ActionService) HandleActionKey(
 	key string,
 	mode string,
 ) (bool, error) {
+	s.mu.RLock()
 	act, logMsg, _, ok := s.getActionMapping(key)
+	s.mu.RUnlock()
 
 	if !ok {
 		s.logger.Debug("Unknown action key",
@@ -269,12 +289,14 @@ func (s *ActionService) IsMoveMouseKey(key string) bool {
 		return false
 	}
 
+	s.mu.RLock()
 	bindings := []string{
 		s.keyBindings.MoveMouseUp,
 		s.keyBindings.MoveMouseDown,
 		s.keyBindings.MoveMouseLeft,
 		s.keyBindings.MoveMouseRight,
 	}
+	s.mu.RUnlock()
 
 	keysToCheck := []string{key}
 	// If key is a single uppercase letter, also check against Shift+Key
@@ -307,7 +329,11 @@ func (s *ActionService) HandleDirectActionKey(
 	ctx context.Context,
 	key string,
 ) (string, bool, error) {
+	s.mu.RLock()
 	actionString, logMsg, resolvedKey, ok := s.getActionMapping(key)
+	keyBindings := s.keyBindings
+	step := s.moveMouseStep
+	s.mu.RUnlock()
 
 	if !ok {
 		return "", false, nil
@@ -319,14 +345,14 @@ func (s *ActionService) HandleDirectActionKey(
 		var deltaX, deltaY int
 
 		switch resolvedKeyLower {
-		case strings.ToLower(s.keyBindings.MoveMouseUp):
-			deltaY = -s.moveMouseStep
-		case strings.ToLower(s.keyBindings.MoveMouseDown):
-			deltaY = s.moveMouseStep
-		case strings.ToLower(s.keyBindings.MoveMouseLeft):
-			deltaX = -s.moveMouseStep
-		case strings.ToLower(s.keyBindings.MoveMouseRight):
-			deltaX = s.moveMouseStep
+		case strings.ToLower(keyBindings.MoveMouseUp):
+			deltaY = -step
+		case strings.ToLower(keyBindings.MoveMouseDown):
+			deltaY = step
+		case strings.ToLower(keyBindings.MoveMouseLeft):
+			deltaX = -step
+		case strings.ToLower(keyBindings.MoveMouseRight):
+			deltaX = step
 		default:
 			return "", false, nil
 		}
@@ -335,7 +361,7 @@ func (s *ActionService) HandleDirectActionKey(
 			zap.String("action", logMsg),
 			zap.Int("dx", deltaX),
 			zap.Int("dy", deltaY),
-			zap.Int("step", s.moveMouseStep),
+			zap.Int("step", step),
 		)
 
 		moveErr := s.MoveMouseRelative(ctx, deltaX, deltaY, true)

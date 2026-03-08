@@ -40,6 +40,35 @@ func isValidModifier(mod string) bool {
 	return validModifiers[mod]
 }
 
+// validateBackspaceKeyFormat validates that a backspace_key value is a recognized key format.
+// Valid formats: empty (default backspace/delete), single character, named key (from validNamedKeys),
+// or a modifier combo (e.g. "Ctrl+H").
+// The fieldName parameter is used in error messages.
+func validateBackspaceKeyFormat(key, fieldName string) error {
+	if key == "" {
+		return nil // empty means use default backspace/delete
+	}
+	// Named key (e.g. "backspace", "delete", "Tab", "F1")
+	if IsValidNamedKey(key) {
+		return nil
+	}
+	// Modifier combo (e.g. "Ctrl+H")
+	if strings.Contains(key, "+") {
+		return validateModifierCombo(key, fieldName)
+	}
+	// Single character
+	if len(key) == 1 {
+		return nil
+	}
+
+	return derrors.Newf(
+		derrors.CodeInvalidConfig,
+		"%s = '%s' is invalid; must be a single character, a named key (e.g. 'backspace', 'Tab', 'F1'), or a modifier combo (e.g. 'Ctrl+H')",
+		fieldName,
+		key,
+	)
+}
+
 // colorField represents a color configuration field to validate.
 type colorField struct {
 	value     string
@@ -93,6 +122,12 @@ func (c *Config) ValidateHints() error {
 				"hint_characters can only contain ASCII characters",
 			)
 		}
+	}
+
+	// Validate backspace key format
+	err = validateBackspaceKeyFormat(c.Hints.BackspaceKey, "hints.backspace_key")
+	if err != nil {
+		return err
 	}
 
 	// Validate backspace key doesn't conflict with hint characters
@@ -296,8 +331,9 @@ func (c *Config) ValidateGrid() error {
 		resetKey = " "
 	}
 
-	// Validate reset key format: either single character or modifier combo
-	if strings.Contains(resetKey, "+") {
+	// Validate reset key format: single character, named key, or modifier combo
+	switch {
+	case strings.Contains(resetKey, "+"):
 		// Validate modifier combo (e.g. "Ctrl+R")
 		err := validateResetKeyCombo(resetKey, "grid.reset_key")
 		if err != nil {
@@ -314,13 +350,37 @@ func (c *Config) ValidateGrid() error {
 			)
 		}
 
-		// Modifier combos don't conflict with grid characters, so we can return early
-	} else {
+		// Modifier combos don't conflict with grid characters, so no further checks needed
+	case IsValidNamedKey(resetKey):
+		// Named key reset (e.g. "Home", "F1", "Tab")
+		// Named keys don't conflict with grid character sets, but check backspace conflict
+		gridBackspaceKey := c.Grid.BackspaceKey
+		if gridBackspaceKey == "" {
+			normalizedResetKey := NormalizeKeyForComparison(resetKey)
+			if normalizedResetKey == KeyNameDelete {
+				return derrors.New(
+					derrors.CodeInvalidConfig,
+					"grid.reset_key cannot be 'backspace' or 'delete'; these keys are reserved for input correction",
+				)
+			}
+		} else {
+			normalizedResetKey := NormalizeKeyForComparison(resetKey)
+			normalizedBackspaceKey := NormalizeKeyForComparison(gridBackspaceKey)
+
+			if normalizedResetKey == normalizedBackspaceKey {
+				return derrors.Newf(
+					derrors.CodeInvalidConfig,
+					"grid.reset_key cannot be the same as grid.backspace_key ('%s')",
+					gridBackspaceKey,
+				)
+			}
+		}
+	default:
 		// Validate single character reset key
 		if len(resetKey) != 1 {
 			return derrors.New(
 				derrors.CodeInvalidConfig,
-				"grid.reset_key must be either a single character or a modifier combo (e.g. 'Ctrl+R')",
+				"grid.reset_key must be a single character, a named key (e.g. 'Home', 'F1'), or a modifier combo (e.g. 'Ctrl+R')",
 			)
 		}
 
@@ -358,7 +418,10 @@ func (c *Config) ValidateGrid() error {
 		}
 
 		// Single-character reset key cannot be in grid characters
-		if strings.Contains(strings.ToLower(c.Grid.Characters), strings.ToLower(resetKey)) {
+		if strings.ContainsRune(
+			strings.ToLower(c.Grid.Characters),
+			rune(strings.ToLower(resetKey)[0]),
+		) {
 			return derrors.New(
 				derrors.CodeInvalidConfig,
 				"grid.characters cannot contain '"+resetKey+"' as it is reserved for reset",
@@ -393,10 +456,11 @@ func (c *Config) ValidateGrid() error {
 		}
 
 		// Only check for reset key conflict if reset key is a single character
-		lowerResetKey := strings.ToLower(resetKey)
-		lowerRowLabels := strings.ToLower(c.Grid.RowLabels)
-
-		if !strings.Contains(resetKey, "+") && strings.Contains(lowerRowLabels, lowerResetKey) {
+		if len(resetKey) == 1 &&
+			strings.ContainsRune(
+				strings.ToLower(c.Grid.RowLabels),
+				rune(strings.ToLower(resetKey)[0]),
+			) {
 			return derrors.New(
 				derrors.CodeInvalidConfig,
 				"grid.row_labels cannot contain '"+resetKey+"' as it is reserved for reset",
@@ -431,11 +495,11 @@ func (c *Config) ValidateGrid() error {
 		}
 
 		// Only check for reset key conflict if reset key is a single character (case-insensitive)
-
-		lowerResetKey := strings.ToLower(resetKey)
-
-		lowerColLabels := strings.ToLower(c.Grid.ColLabels)
-		if !strings.Contains(resetKey, "+") && strings.Contains(lowerColLabels, lowerResetKey) {
+		if len(resetKey) == 1 &&
+			strings.ContainsRune(
+				strings.ToLower(c.Grid.ColLabels),
+				rune(strings.ToLower(resetKey)[0]),
+			) {
 			return derrors.New(
 				derrors.CodeInvalidConfig,
 				"grid.col_labels cannot contain '"+resetKey+"' as it is reserved for reset",
@@ -495,11 +559,8 @@ func (c *Config) ValidateGrid() error {
 
 	// Apply same ASCII and reserved character validation as grid.characters
 	// Only check for reset key conflict if reset key is a single character (case-insensitive)
-
-	lowerResetKey := strings.ToLower(resetKey)
-
-	lowerKeys := strings.ToLower(keys)
-	if !strings.Contains(resetKey, "+") && strings.Contains(lowerKeys, lowerResetKey) {
+	if len(resetKey) == 1 &&
+		strings.ContainsRune(strings.ToLower(keys), rune(strings.ToLower(resetKey)[0])) {
 		return derrors.New(
 			derrors.CodeInvalidConfig,
 			"grid.sublayer_keys cannot contain '"+resetKey+"' as it is reserved for reset",
@@ -531,6 +592,12 @@ func (c *Config) ValidateGrid() error {
 			"grid.sublayer_keys must contain at least %d characters for 3x3 subgrid selection",
 			required,
 		)
+	}
+
+	// Validate backspace key format
+	err = validateBackspaceKeyFormat(c.Grid.BackspaceKey, "grid.backspace_key")
+	if err != nil {
+		return err
 	}
 
 	// Validate backspace key doesn't conflict with grid characters/labels/sublayer keys
@@ -590,6 +657,10 @@ func (c *Config) ValidateActionKeyBindings() error {
 		{c.Action.KeyBindings.MiddleClick, "action.key_bindings.middle_click"},
 		{c.Action.KeyBindings.MouseDown, "action.key_bindings.mouse_down"},
 		{c.Action.KeyBindings.MouseUp, "action.key_bindings.mouse_up"},
+		{c.Action.KeyBindings.MoveMouseUp, "action.key_bindings.move_mouse_up"},
+		{c.Action.KeyBindings.MoveMouseDown, "action.key_bindings.move_mouse_down"},
+		{c.Action.KeyBindings.MoveMouseLeft, "action.key_bindings.move_mouse_left"},
+		{c.Action.KeyBindings.MoveMouseRight, "action.key_bindings.move_mouse_right"},
 	}
 
 	for _, b := range bindings {
@@ -604,8 +675,9 @@ func (c *Config) ValidateActionKeyBindings() error {
 
 // ValidateActionKeyBinding validates an action keybinding.
 // Valid formats:
-//   - Modifiers + key: Cmd+L, Shift+Return (at least 1 modifier + alphabet or Return/Enter)
-//   - Single special key: Return, Enter
+//   - Single printable ASCII character: "L", "w", "1" (any character from ! to ~)
+//   - Single named key: Return, Enter, Up, Down, F1, etc.
+//   - Modifiers + key: Cmd+L, Shift+Return (at least 1 modifier + character or named key)
 func ValidateActionKeyBinding(keybinding, fieldName string) error {
 	if strings.TrimSpace(keybinding) == "" {
 		return nil
@@ -613,19 +685,27 @@ func ValidateActionKeyBinding(keybinding, fieldName string) error {
 
 	normalizedKey := strings.TrimSpace(keybinding)
 
-	// Format 1: Single special key (Return, Enter)
-	if normalizedKey == "Return" || normalizedKey == "Enter" {
+	// Format 1: Single named key (e.g. Return, Enter, Up, F1)
+	if IsValidNamedKey(normalizedKey) {
 		return nil
 	}
 
-	// Format 2: Modifiers + key (e.g., Cmd+L, Shift+Return)
+	// Format 2: Single printable ASCII character (e.g. "L", "w", "1")
+	if len(normalizedKey) == 1 {
+		r := rune(normalizedKey[0])
+		if r >= '!' && r <= '~' {
+			return nil
+		}
+	}
+
+	// Format 3: Modifiers + key (e.g., Cmd+L, Shift+Return)
 	parts := strings.Split(normalizedKey, "+")
 
 	const minParts = 2
 	if len(parts) < minParts {
 		return derrors.Newf(
 			derrors.CodeInvalidConfig,
-			"%s must have at least one modifier (e.g., Cmd+L, Shift+Return): %s",
+			"%s must be a single character, a named key (e.g. Return, Up, F1), or have at least one modifier (e.g., Cmd+L, Shift+Return): %s",
 			fieldName,
 			keybinding,
 		)
@@ -662,33 +742,30 @@ func ValidateActionKeyBinding(keybinding, fieldName string) error {
 		)
 	}
 
-	// Validate the key part (must be alphabet A-Z, Return, Enter, or \r)
-	if len(trimmedKey) == 1 {
-		if trimmedKey == "\r" {
-			// Single \r is valid
-		} else {
-			r := rune(trimmedKey[0])
-			if r < 'A' || r > 'Z' {
-				return derrors.Newf(
-					derrors.CodeInvalidConfig,
-					"%s has invalid key '%s' in: %s (must be alphabet A-Z, Return, or Enter)",
-					fieldName,
-					trimmedKey,
-					keybinding,
-				)
-			}
-		}
-	} else if trimmedKey != "Return" && trimmedKey != "Enter" {
-		return derrors.Newf(
-			derrors.CodeInvalidConfig,
-			"%s has invalid key '%s' in: %s (must be alphabet A-Z, Return, or Enter)",
-			fieldName,
-			trimmedKey,
-			keybinding,
-		)
+	// Validate the key part: single printable ASCII character, named key, or \r
+	if trimmedKey == "\r" {
+		// Single \r is valid
+		return nil
 	}
 
-	return nil
+	if IsValidNamedKey(trimmedKey) {
+		return nil
+	}
+
+	if len(trimmedKey) == 1 {
+		r := rune(trimmedKey[0])
+		if r >= '!' && r <= '~' {
+			return nil
+		}
+	}
+
+	return derrors.Newf(
+		derrors.CodeInvalidConfig,
+		"%s has invalid key '%s' in: %s (must be a single character, a named key like Return, Up, F1, etc.)",
+		fieldName,
+		trimmedKey,
+		keybinding,
+	)
 }
 
 // ValidateSmoothCursor validates the smooth cursor configuration.
@@ -803,21 +880,6 @@ func (c *Config) ValidateModeExitKeys() error {
 		)
 	}
 
-	validNamedKeys := map[string]bool{
-		"escape":    true,
-		"esc":       true,
-		"return":    true,
-		"enter":     true,
-		"tab":       true,
-		"space":     true,
-		"backspace": true,
-		"delete":    true,
-		"home":      true,
-		"end":       true,
-		"pageup":    true,
-		"pagedown":  true,
-	}
-
 	for index, key := range c.General.ModeExitKeys {
 		key = strings.TrimSpace(key)
 		if key == "" {
@@ -828,8 +890,8 @@ func (c *Config) ValidateModeExitKeys() error {
 			)
 		}
 
-		// Check if it's a named key
-		if validNamedKeys[strings.ToLower(key)] {
+		// Check if it's a named key (uses centralized validNamedKeys registry)
+		if IsValidNamedKey(key) || strings.EqualFold(key, "esc") {
 			continue
 		}
 
@@ -966,6 +1028,73 @@ func checkBackspaceKeyCharConflict(
 				charsFieldName,
 				actionDesc,
 			)
+		}
+	}
+
+	return nil
+}
+
+// checkResetKeyActionKeyConflicts checks if any mode's reset_key conflicts with an action
+// key binding. At runtime, direct action keys are checked before reset keys
+// (in mode_handlers.go), so a conflict means the reset key will never fire — the action
+// will always take priority.
+func (c *Config) checkResetKeyActionKeyConflicts() error {
+	bindings := []struct {
+		value     string
+		fieldName string
+	}{
+		{c.Action.KeyBindings.LeftClick, "action.key_bindings.left_click"},
+		{c.Action.KeyBindings.RightClick, "action.key_bindings.right_click"},
+		{c.Action.KeyBindings.MiddleClick, "action.key_bindings.middle_click"},
+		{c.Action.KeyBindings.MouseDown, "action.key_bindings.mouse_down"},
+		{c.Action.KeyBindings.MouseUp, "action.key_bindings.mouse_up"},
+		{c.Action.KeyBindings.MoveMouseUp, "action.key_bindings.move_mouse_up"},
+		{c.Action.KeyBindings.MoveMouseDown, "action.key_bindings.move_mouse_down"},
+		{c.Action.KeyBindings.MoveMouseLeft, "action.key_bindings.move_mouse_left"},
+		{c.Action.KeyBindings.MoveMouseRight, "action.key_bindings.move_mouse_right"},
+	}
+
+	type modeResetKey struct {
+		key       string
+		modeName  string
+		isEnabled bool
+	}
+
+	gridResetKey := c.Grid.ResetKey
+	if gridResetKey == "" {
+		gridResetKey = " "
+	}
+
+	rgResetKey := c.RecursiveGrid.ResetKey
+	if rgResetKey == "" {
+		rgResetKey = " "
+	}
+
+	modes := []modeResetKey{
+		{gridResetKey, "grid", c.Grid.Enabled},
+		{rgResetKey, "recursive_grid", c.RecursiveGrid.Enabled},
+	}
+	for _, mode := range modes {
+		if !mode.isEnabled {
+			continue
+		}
+
+		normalizedReset := NormalizeKeyForComparison(mode.key)
+		for _, binding := range bindings {
+			if binding.value == "" {
+				continue
+			}
+
+			if normalizedReset == NormalizeKeyForComparison(binding.value) {
+				return derrors.Newf(
+					derrors.CodeInvalidConfig,
+					"%s.reset_key '%s' conflicts with %s ('%s'); the action key is checked first at runtime, so reset will never fire",
+					mode.modeName,
+					mode.key,
+					binding.fieldName,
+					binding.value,
+				)
+			}
 		}
 	}
 
@@ -1348,8 +1477,9 @@ func (c *Config) ValidateRecursiveGrid() error {
 		resetKey = " "
 	}
 
-	// Validate reset key format: either single character or modifier combo
-	if strings.Contains(resetKey, "+") {
+	// Validate reset key format: single character, named key, or modifier combo
+	switch {
+	case strings.Contains(resetKey, "+"):
 		// Validate modifier combo (e.g. "Ctrl+R")
 		err := validateResetKeyCombo(resetKey, "recursive_grid.reset_key")
 		if err != nil {
@@ -1366,13 +1496,37 @@ func (c *Config) ValidateRecursiveGrid() error {
 			)
 		}
 
-		// Modifier combos don't conflict with recursive_grid keys, so we can return early
-	} else {
+		// Modifier combos don't conflict with recursive_grid keys, so no further checks needed
+	case IsValidNamedKey(resetKey):
+		// Named key reset (e.g. "Home", "F1", "Tab")
+		// Named keys don't conflict with recursive_grid character sets, but check backspace conflict
+		rgBackspaceKey := c.RecursiveGrid.BackspaceKey
+		if rgBackspaceKey == "" {
+			normalizedResetKey := NormalizeKeyForComparison(resetKey)
+			if normalizedResetKey == KeyNameDelete {
+				return derrors.New(
+					derrors.CodeInvalidConfig,
+					"recursive_grid.reset_key cannot be 'backspace' or 'delete'; these keys are reserved for input correction",
+				)
+			}
+		} else {
+			normalizedResetKey := NormalizeKeyForComparison(resetKey)
+
+			normalizedBackspaceKey := NormalizeKeyForComparison(rgBackspaceKey)
+			if normalizedResetKey == normalizedBackspaceKey {
+				return derrors.Newf(
+					derrors.CodeInvalidConfig,
+					"recursive_grid.reset_key cannot be the same as recursive_grid.backspace_key ('%s')",
+					rgBackspaceKey,
+				)
+			}
+		}
+	default:
 		// Validate single character reset key
 		if len(resetKey) != 1 {
 			return derrors.New(
 				derrors.CodeInvalidConfig,
-				"recursive_grid.reset_key must be either a single character or a modifier combo (e.g. 'Ctrl+R')",
+				"recursive_grid.reset_key must be a single character, a named key (e.g. 'Home', 'F1'), or a modifier combo (e.g. 'Ctrl+R')",
 			)
 		}
 
@@ -1410,7 +1564,10 @@ func (c *Config) ValidateRecursiveGrid() error {
 		}
 
 		// Single-character reset key cannot be in recursive_grid keys
-		if strings.Contains(strings.ToLower(c.RecursiveGrid.Keys), strings.ToLower(resetKey)) {
+		if strings.ContainsRune(
+			strings.ToLower(c.RecursiveGrid.Keys),
+			rune(strings.ToLower(resetKey)[0]),
+		) {
 			return derrors.New(
 				derrors.CodeInvalidConfig,
 				"recursive_grid.keys cannot contain '"+resetKey+"' as it is reserved for reset",
@@ -1418,8 +1575,17 @@ func (c *Config) ValidateRecursiveGrid() error {
 		}
 	}
 
+	// Validate backspace key format
+	err := validateBackspaceKeyFormat(
+		c.RecursiveGrid.BackspaceKey,
+		"recursive_grid.backspace_key",
+	)
+	if err != nil {
+		return err
+	}
+
 	// Validate backspace key doesn't conflict with recursive_grid keys
-	err := checkBackspaceKeyCharConflict(
+	err = checkBackspaceKeyCharConflict(
 		c.RecursiveGrid.BackspaceKey,
 		keys,
 		"recursive_grid.backspace_key",

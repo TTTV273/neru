@@ -18,6 +18,7 @@ const (
 )
 
 // Key name constants for normalization.
+// These are the canonical lowercase forms used throughout the codebase.
 const (
 	KeyNameEscape    = "escape"
 	KeyNameReturn    = "return"
@@ -25,12 +26,106 @@ const (
 	KeyNameSpace     = "space"
 	KeyNameBackspace = "backspace"
 	KeyNameDelete    = "delete"
+	KeyNameHome      = "home"
+	KeyNameEnd       = "end"
+	KeyNamePageUp    = "pageup"
+	KeyNamePageDown  = "pagedown"
+	KeyNameUp        = "up"
+	KeyNameDown      = "down"
+	KeyNameLeft      = "left"
+	KeyNameRight     = "right"
 )
+
+// validNamedKeys is the canonical set of all named keys the system supports.
+// Every validator, normalizer, and key parser should reference this set via the
+// public helpers (IsValidNamedKey, CanonicalNamedKeyForm) instead of maintaining
+// its own ad-hoc list. The keys are stored in their display form (the casing
+// that the event tap / config files use).
+//
+// The variable is unexported to prevent accidental mutation by other packages.
+var validNamedKeys = map[string]bool{
+	// Special keys
+	"Space":     true,
+	"Return":    true,
+	"Enter":     true, // alias for Return
+	"Escape":    true,
+	"Tab":       true,
+	"Delete":    true,
+	"Backspace": true, // alias for Delete on macOS
+	// Navigation keys
+	"Up":       true,
+	"Down":     true,
+	"Left":     true,
+	"Right":    true,
+	"Home":     true,
+	"End":      true,
+	"PageUp":   true,
+	"PageDown": true,
+	// Function keys
+	"F1":  true,
+	"F2":  true,
+	"F3":  true,
+	"F4":  true,
+	"F5":  true,
+	"F6":  true,
+	"F7":  true,
+	"F8":  true,
+	"F9":  true,
+	"F10": true,
+	"F11": true,
+	"F12": true,
+	"F13": true,
+	"F14": true,
+	"F15": true,
+	"F16": true,
+	"F17": true,
+	"F18": true,
+	"F19": true,
+	"F20": true,
+}
+
+// validNamedKeysLower is a precomputed lowercase lookup for IsValidNamedKey.
+var validNamedKeysLower map[string]bool
+
+// namedKeyDisplayForm maps lowercase key names to their canonical display form
+// (e.g. "pagedown" → "PageDown", "f1" → "F1"). Used by CanonicalNamedKeyForm.
+var namedKeyDisplayForm map[string]string
+
+func init() {
+	validNamedKeysLower = make(map[string]bool, len(validNamedKeys))
+	namedKeyDisplayForm = make(map[string]string, len(validNamedKeys))
+
+	for k := range validNamedKeys {
+		lower := strings.ToLower(k)
+		validNamedKeysLower[lower] = true
+		namedKeyDisplayForm[lower] = k
+	}
+}
+
+// IsValidNamedKey checks whether a key name is a recognized named key (case-insensitive).
+func IsValidNamedKey(key string) bool {
+	return validNamedKeysLower[strings.ToLower(key)]
+}
+
+// CanonicalNamedKeyForm returns the canonical display form of a named key
+// (e.g. "pagedown" → "PageDown", "UP" → "Up", "f1" → "F1").
+// If the key is not a recognized named key, it returns the input unchanged
+// and false as the second return value.
+func CanonicalNamedKeyForm(key string) (string, bool) {
+	display, displayOk := namedKeyDisplayForm[strings.ToLower(key)]
+
+	if !displayOk {
+		return key, false
+	}
+
+	return display, displayOk
+}
 
 // NormalizeKeyForComparison converts escape sequences and key names to a canonical form for comparison.
 // This ensures that "\x1b" and "escape" are treated as the same key, and provides case-insensitive
 // matching for all keys (e.g. "q" matches "Q", "Ctrl+R" matches "ctrl+r").
 // On macOS, both "backspace" and "delete" are treated as synonyms for the DEL key (\x7f).
+// Named keys (arrows, function keys, nav keys) are normalized to their canonical lowercase form.
 // Also normalizes fullwidth CJK characters to their halfwidth ASCII equivalents.
 func NormalizeKeyForComparison(key string) string {
 	// Normalize fullwidth CJK characters first, before lowercasing and canonical matching.
@@ -38,23 +133,26 @@ func NormalizeKeyForComparison(key string) string {
 	key = normalizeFullwidthChars(key)
 	key = strings.ToLower(key)
 
+	// Handle escape sequences and aliases that map to a different canonical form.
 	switch key {
-	case "\x1b", KeyNameEscape, "esc":
+	case "\x1b", "esc":
 		return KeyNameEscape
-	case "\r", KeyNameReturn, "enter":
+	case "\r", "enter":
 		return KeyNameReturn
-	case "\t", KeyNameTab:
+	case "\t":
 		return KeyNameTab
-	case " ", KeyNameSpace:
+	case " ":
 		return KeyNameSpace
-	case "\x08", "\x7f", KeyNameDelete, KeyNameBackspace:
+	case "\x08", "\x7f", KeyNameBackspace:
 		// On macOS, the Delete key (above Return) sends \x7f.
 		// \x08 is the ASCII BS control character (rarely generated on macOS but included for completeness).
 		// Treat "delete", "backspace", \x7f, and \x08 as synonyms for user-friendly matching.
 		return KeyNameDelete
-	default:
-		return key
 	}
+
+	// All other keys (named keys, plain characters, modifier combos) are already
+	// lowercased by strings.ToLower above and pass through as-is.
+	return key
 }
 
 // normalizeFullwidthChars converts fullwidth CJK characters (U+FF01-U+FF5E)
@@ -450,6 +548,14 @@ func (c *Config) Validate() error {
 	// At runtime, direct action keys are checked before backspace keys,
 	// so a conflict means backspace will never fire.
 	err = c.checkBackspaceKeyActionKeyConflicts()
+	if err != nil {
+		return err
+	}
+
+	// Validate reset keys don't conflict with action key bindings.
+	// At runtime, direct action keys are checked before reset keys,
+	// so a conflict means reset will never fire.
+	err = c.checkResetKeyActionKeyConflicts()
 	if err != nil {
 		return err
 	}
@@ -858,46 +964,9 @@ func validateScrollKey(key, fieldName string) error {
 
 // isValidScrollKeyName checks if a key name is valid for scroll keybindings.
 // This validates the base key part (after modifier splitting in validateScrollKey).
+// Uses the centralized validNamedKeys registry for named key validation.
 func isValidScrollKeyName(key string) bool {
-	validKeys := map[string]bool{
-		"Space":     true,
-		"Return":    true,
-		"Enter":     true,
-		"Escape":    true,
-		"Tab":       true,
-		"Delete":    true,
-		"Backspace": true,
-		"Home":      true,
-		"End":       true,
-		"PageUp":    true,
-		"PageDown":  true,
-		"Up":        true,
-		"Down":      true,
-		"Left":      true,
-		"Right":     true,
-		"F1":        true,
-		"F2":        true,
-		"F3":        true,
-		"F4":        true,
-		"F5":        true,
-		"F6":        true,
-		"F7":        true,
-		"F8":        true,
-		"F9":        true,
-		"F10":       true,
-		"F11":       true,
-		"F12":       true,
-		"F13":       true,
-		"F14":       true,
-		"F15":       true,
-		"F16":       true,
-		"F17":       true,
-		"F18":       true,
-		"F19":       true,
-		"F20":       true,
-	}
-
-	if validKeys[key] {
+	if IsValidNamedKey(key) {
 		return true
 	}
 

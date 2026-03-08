@@ -13,28 +13,50 @@ func TestNormalizeKey(t *testing.T) {
 		input    string
 		expected string
 	}{
+		// Named keys are canonicalized to display form (case-insensitive)
 		{"Up", scroll.ArrowUp},
 		{"Down", scroll.ArrowDown},
 		{"Left", scroll.ArrowLeft},
 		{"Right", scroll.ArrowRight},
-		{"\x1f", scroll.ArrowUp},
-		{"\x1e", scroll.ArrowDown},
-		{"\x1d", scroll.ArrowLeft},
-		{"\x1c", scroll.ArrowRight},
+		{"up", scroll.ArrowUp},
+		{"down", scroll.ArrowDown},
+		{"left", scroll.ArrowLeft},
+		{"right", scroll.ArrowRight},
+		{"UP", scroll.ArrowUp},
+		{"Home", "Home"},
+		{"End", "End"},
+		{"home", "Home"},
+		{"end", "End"},
+		{"PageUp", "PageUp"},
+		{"PageDown", "PageDown"},
+		{"pageup", "PageUp"},
+		{"pagedown", "PageDown"},
+		{"PAGEDOWN", "PageDown"},
+		{"F1", "F1"},
+		{"f1", "F1"},
+		{"F12", "F12"},
+		{"f12", "F12"},
+
+		// Modifier combos are lowercased
 		{"Ctrl+U", "ctrl+u"},
 		{"Ctrl+D", "ctrl+d"},
 		{"Ctrl+Z", "ctrl+z"},
+		{"Shift+G", "shift+g"},
+
+		// Control characters normalize to modifier form
 		{"\x1a", "ctrl+z"},
 		{"\x03", "ctrl+c"},
 		{"\x07", "ctrl+g"},
+
+		// Other modifier formats
 		{"Alt+Z", "alt+z"},
 		{"Cmd+Z", "cmd+z"},
 		{"Option+Z", "option+z"},
+
+		// Plain keys pass through
 		{"k", "k"},
 		{"j", "j"},
 		{"gg", "gg"},
-		{"Home", "Home"},
-		{"End", "End"},
 	}
 
 	for _, tc := range testCases {
@@ -271,6 +293,42 @@ func TestKeyMapModifierCaseInsensitivity(t *testing.T) {
 		{"Cmd+K", scroll.ActionScrollUp},
 	}
 
+	for _, testCase := range testCases {
+		t.Run(testCase.key, func(t *testing.T) {
+			act, found := keyMap.Lookup(testCase.key)
+			if !found {
+				t.Errorf("Lookup(%q) not found", testCase.key)
+			}
+
+			if act != testCase.wantAct {
+				t.Errorf("Lookup(%q) = %q, want %q", testCase.key, act, testCase.wantAct)
+			}
+		})
+	}
+}
+
+func TestKeyMapNamedKeyCaseInsensitive(t *testing.T) {
+	// Simulate a user configuring lowercase named keys in TOML
+	bindings := map[string][]string{
+		scroll.ActionScrollUp:   {"k", "up"},
+		scroll.ActionScrollDown: {"j", "down"},
+		scroll.ActionPageUp:     {"pageup"},
+		scroll.ActionPageDown:   {"PAGEDOWN"},
+	}
+	keyMap := scroll.NewKeyMap(bindings)
+	// The event tap sends title-case names — these must still match
+	testCases := []struct {
+		key     string
+		wantAct string
+	}{
+		{"Up", scroll.ActionScrollUp},
+		{"Down", scroll.ActionScrollDown},
+		{"PageUp", scroll.ActionPageUp},
+		{"PageDown", scroll.ActionPageDown},
+		// Lowercase lookup should also work
+		{"up", scroll.ActionScrollUp},
+		{"down", scroll.ActionScrollDown},
+	}
 	for _, testCase := range testCases {
 		t.Run(testCase.key, func(t *testing.T) {
 			act, found := keyMap.Lookup(testCase.key)

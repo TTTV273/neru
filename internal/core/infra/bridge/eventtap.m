@@ -239,7 +239,7 @@ CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 			// Special handling for delete/backspace key (Shift+Delete handled in Shift-only block)
 			if (keyCode == kKeyCodeDelete) {
 				if (context->callback) {
-					context->callback("delete", context->userData);
+					context->callback("Delete", context->userData);
 				}
 				return NULL;
 			}
@@ -247,21 +247,57 @@ CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 			// Special handling for escape key (Shift+Escape handled in Shift-only block)
 			if (keyCode == kKeyCodeEscape) {
 				if (context->callback) {
-					context->callback("escape", context->userData);
+					context->callback("Escape", context->userData);
 				}
 				return NULL;
 			}
 
-			// Handle arrow keys and special keys using lookup table
+			// Special handling for tab key (Shift+Tab handled in Shift-only block)
+			if (keyCode == kKeyCodeTab) {
+				if (context->callback) {
+					context->callback("Tab", context->userData);
+				}
+				return NULL;
+			}
+
+			// Handle arrow keys, navigation keys, and function keys using lookup table
 			// Note: Shift+Arrow is handled in Shift-only block since keyCodeToName returns non-nil for these
 			{
 				static const struct {
 					CGKeyCode code;
 					const char *name;
 				} specialKeys[] = {
-				    {kKeyCodeUp, "Up"},       {kKeyCodeDown, "Down"},     {kKeyCodeLeft, "Left"},
-				    {kKeyCodeRight, "Right"}, {kKeyCodePageUp, "PageUp"}, {kKeyCodePageDown, "PageDown"},
-				    {kKeyCodeHome, "Home"},   {kKeyCodeEnd, "End"},
+				    // Navigation keys
+				    {kKeyCodeUp, "Up"},
+				    {kKeyCodeDown, "Down"},
+				    {kKeyCodeLeft, "Left"},
+				    {kKeyCodeRight, "Right"},
+				    {kKeyCodePageUp, "PageUp"},
+				    {kKeyCodePageDown, "PageDown"},
+				    {kKeyCodeHome, "Home"},
+				    {kKeyCodeEnd, "End"},
+
+				    // Function keys
+				    {kKeyCodeF1, "F1"},
+				    {kKeyCodeF2, "F2"},
+				    {kKeyCodeF3, "F3"},
+				    {kKeyCodeF4, "F4"},
+				    {kKeyCodeF5, "F5"},
+				    {kKeyCodeF6, "F6"},
+				    {kKeyCodeF7, "F7"},
+				    {kKeyCodeF8, "F8"},
+				    {kKeyCodeF9, "F9"},
+				    {kKeyCodeF10, "F10"},
+				    {kKeyCodeF11, "F11"},
+				    {kKeyCodeF12, "F12"},
+				    {kKeyCodeF13, "F13"},
+				    {kKeyCodeF14, "F14"},
+				    {kKeyCodeF15, "F15"},
+				    {kKeyCodeF16, "F16"},
+				    {kKeyCodeF17, "F17"},
+				    {kKeyCodeF18, "F18"},
+				    {kKeyCodeF19, "F19"},
+				    {kKeyCodeF20, "F20"},
 				};
 
 				for (size_t i = 0; i < sizeof(specialKeys) / sizeof(specialKeys[0]); i++) {

@@ -16,6 +16,7 @@ typedef struct {
 	CFMachPortRef eventTap;                                   ///< Event tap reference
 	CFRunLoopSourceRef runLoopSource;                         ///< Run loop source
 	EventTapCallback callback;                                ///< Callback function
+	EventTapPassthroughCallback passthroughCallback;          ///< Called when a modifier shortcut passes through
 	void *userData;                                           ///< User data pointer
 	NSDictionary *__strong hotkeyLookup;                      ///< Immutable hotkey lookup table: @(lookupKey) -> @YES
 	NSArray<NSString *> *__strong hotkeyStrings;              ///< Raw hotkey strings for rebuild on layout change
@@ -324,9 +325,11 @@ CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 			if (hasCmd || hasAlt || hasCtrl) {
 				BOOL passthroughEnabled = NO;
 				NSDictionary *blacklistLookup = nil;
+				EventTapPassthroughCallback ptCallback = NULL;
 				os_unfair_lock_lock(&context->modifierPassthroughLock);
 				passthroughEnabled = context->passthroughUnboundedModifiers;
 				blacklistLookup = context->modifierBlacklistLookup;
+				ptCallback = context->passthroughCallback;
 				os_unfair_lock_unlock(&context->modifierPassthroughLock);
 
 				NSDictionary *interceptedLookup = nil;
@@ -338,6 +341,13 @@ CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 				BOOL isBlacklisted = blacklistLookup != nil && [blacklistLookup[@(lookupKey)] boolValue];
 
 				if (passthroughEnabled && !isIntercepted && !isBlacklisted) {
+					// Notify Go that a modifier shortcut was passed through so
+					// the active mode can decide whether to refresh (e.g., hints
+					// mode re-collects AX elements after Cmd+Tab).
+					if (ptCallback) {
+						ptCallback(context->userData);
+					}
+
 					return event;
 				}
 
@@ -605,6 +615,18 @@ void setEventTapInterceptedModifierKeys(EventTap tap, const char **keys, int cou
 	}
 }
 
+/// Set callback invoked when a modifier shortcut passes through to macOS.
+/// @param tap Event tap handle
+/// @param callback Passthrough callback function (may be NULL to clear)
+void setEventTapPassthroughCallback(EventTap tap, EventTapPassthroughCallback callback) {
+	if (!tap)
+		return;
+	EventTapContext *context = (EventTapContext *)tap;
+	os_unfair_lock_lock(&context->modifierPassthroughLock);
+	context->passthroughCallback = callback;
+	os_unfair_lock_unlock(&context->modifierPassthroughLock);
+}
+
 /// Enable event tap
 /// @param tap Event tap handle
 void enableEventTap(EventTap tap) {
@@ -741,6 +763,7 @@ void destroyEventTap(EventTap tap) {
 		context->modifierBlacklistLookup = nil;
 		context->modifierBlacklistStrings = nil;
 		context->passthroughUnboundedModifiers = NO;
+		context->passthroughCallback = NULL;
 		os_unfair_lock_unlock(&context->modifierPassthroughLock);
 		oldBlacklistLookup = nil;
 		oldBlacklistStrings = nil;

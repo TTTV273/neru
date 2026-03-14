@@ -73,23 +73,17 @@ func MoveMouse(point image.Point, bypassSmooth bool) {
 
 	cfg := config.Global()
 	if cfg != nil && cfg.SmoothCursor.MoveMouseEnabled && !bypassSmooth {
-		MoveMouseSmooth(point, cfg.SmoothCursor.Steps, cfg.SmoothCursor.Delay, uint32(eventType))
+		MoveMouseSmooth(point, cfg.SmoothCursor.Steps, uint32(eventType))
 	} else {
+		cursorAnimator.stop()
 		pos := C.CGPoint{x: C.double(point.X), y: C.double(point.Y)}
 		C.moveMouseWithType(pos, eventType)
 	}
 }
 
 // MoveMouseSmooth moves the mouse cursor smoothly to the specified point.
-func MoveMouseSmooth(end image.Point, steps, delay int, eventType uint32) {
-	current := CursorPosition()
-	C.moveMouseSmoothWithType(
-		C.CGPoint{x: C.double(current.X), y: C.double(current.Y)},
-		C.CGPoint{x: C.double(end.X), y: C.double(end.Y)},
-		C.int(steps),
-		C.int(delay),
-		C.CGEventType(eventType),
-	)
+func MoveMouseSmooth(end image.Point, steps int, eventType uint32) {
+	cursorAnimator.animateTo(end, steps, eventType)
 }
 
 // CursorPosition returns the current cursor position.
@@ -101,6 +95,8 @@ func CursorPosition() image.Point {
 
 // LeftClickAtPoint performs a left mouse click at the specified point.
 func LeftClickAtPoint(point image.Point, restoreCursor bool) error {
+	cursorAnimator.stop()
+
 	pos := C.CGPoint{x: C.double(point.X), y: C.double(point.Y)}
 	result := C.performLeftClickAtPosition(pos, C.bool(restoreCursor))
 	if result == 0 {
@@ -117,6 +113,8 @@ func LeftClickAtPoint(point image.Point, restoreCursor bool) error {
 
 // RightClickAtPoint performs a right mouse click at the specified point.
 func RightClickAtPoint(point image.Point, restoreCursor bool) error {
+	cursorAnimator.stop()
+
 	pos := C.CGPoint{x: C.double(point.X), y: C.double(point.Y)}
 	result := C.performRightClickAtPosition(pos, C.bool(restoreCursor))
 	if result == 0 {
@@ -133,6 +131,8 @@ func RightClickAtPoint(point image.Point, restoreCursor bool) error {
 
 // MiddleClickAtPoint performs a middle mouse click at the specified point.
 func MiddleClickAtPoint(point image.Point, restoreCursor bool) error {
+	cursorAnimator.stop()
+
 	pos := C.CGPoint{x: C.double(point.X), y: C.double(point.Y)}
 	result := C.performMiddleClickAtPosition(pos, C.bool(restoreCursor))
 	if result == 0 {
@@ -149,6 +149,8 @@ func MiddleClickAtPoint(point image.Point, restoreCursor bool) error {
 
 // LeftMouseDownAtPoint performs a left mouse down action at the specified point.
 func LeftMouseDownAtPoint(point image.Point) error {
+	cursorAnimator.stop()
+
 	SetLeftMouseDown(true, point)
 
 	pos := C.CGPoint{x: C.double(point.X), y: C.double(point.Y)}
@@ -169,6 +171,8 @@ func LeftMouseDownAtPoint(point image.Point) error {
 
 // LeftMouseUpAtPoint performs a left mouse up action at the specified point.
 func LeftMouseUpAtPoint(point image.Point) error {
+	cursorAnimator.stop()
+
 	pos := C.CGPoint{x: C.double(point.X), y: C.double(point.Y)}
 	result := C.performLeftMouseUpAtPosition(pos)
 	if result == 0 {
@@ -187,6 +191,8 @@ func LeftMouseUpAtPoint(point image.Point) error {
 
 // LeftMouseUp performs a left mouse up action at the current cursor position.
 func LeftMouseUp() error {
+	cursorAnimator.stop()
+
 	result := C.performLeftMouseUpAtCursor()
 	if result == 0 {
 		return derrors.New(derrors.CodeActionFailed, "failed to perform left-mouse-up at cursor")
@@ -199,6 +205,8 @@ func LeftMouseUp() error {
 
 // ScrollAtCursor performs a scroll action at the current cursor position.
 func ScrollAtCursor(deltaX, deltaY int) error {
+	cursorAnimator.stop()
+
 	result := C.scrollAtCursor(C.int(deltaX), C.int(deltaY))
 	if result == 0 {
 		return derrors.Newf(

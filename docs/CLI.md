@@ -1,26 +1,18 @@
 # CLI Usage
 
-Neru provides a comprehensive command-line interface for controlling the daemon and automating workflows.
-
-## Overview
-
-The Neru CLI communicates with the daemon via IPC (Inter-Process Communication) using Unix domain sockets in the OS temporary directory. This enables:
-
-- Fast, reliable communication
-- Multiple concurrent CLI commands
-- Proper error handling
-- Scriptable workflows
+Neru provides a comprehensive command-line interface for controlling the daemon, triggering navigation modes, and building keyboard-driven workflows — all from scripts or hotkey managers. Commands talk to a running daemon over a Unix socket, so they're fast and scriptable.
 
 ---
 
 ## Table of Contents
 
+- [Getting Started](#getting-started)
 - [Quick Reference](#quick-reference)
 - [Daemon Control](#daemon-control)
 - [Screen Sharing](#screen-sharing)
 - [Service Management](#service-management)
 - [Navigation Commands](#navigation-commands)
-  - [Basic Navigation](#basic-navigation)
+  - [When to Use Which Mode](#when-to-use-which-mode)
   - [Hints Mode](#hints-mode)
   - [Grid Mode](#grid-mode)
   - [Recursive-Grid Mode](#recursive-grid-mode)
@@ -28,73 +20,101 @@ The Neru CLI communicates with the daemon via IPC (Inter-Process Communication) 
 - [Action Commands](#action-commands)
 - [Configuration Management](#configuration-management)
 - [Status & Info](#status--info)
-- [Shell Integration](#shell-integration)
+- [Shell Completions](#shell-completions)
 - [Scripting](#scripting)
 - [Technical Details](#technical-details)
 - [Troubleshooting](#troubleshooting)
 
 ---
 
+## Getting Started
+
+New to Neru? Follow these steps in order:
+
+1. **Create a config** (optional, but recommended):
+
+    ```
+    neru config init
+    ```
+
+2. **Start the daemon:**
+
+    ```
+    neru launch
+    ```
+
+3. **Verify it's running:**
+
+    ```
+    neru status
+    ```
+
+4. **Try hint mode** (press the default hotkey `Cmd+Shift+Space`, or run):
+
+    ```
+    neru hints
+    ```
+
+5. **Install as a system service** so Neru starts automatically on login:
+
+    ```
+    neru services install
+    ```
+
+---
+
 ## Quick Reference
 
-**Common Commands:**
+### First-time setup
 
-```bash
+```
+neru config init         # Create config file
+neru services install    # Auto-start on login
 neru launch              # Start daemon
-neru status              # Check status
-neru services install    # Install launchd service
-neru services status     # Check service status
-neru hints               # Start hint mode
-neru grid                # Start grid mode
-neru recursive_grid      # Start recursive-grid mode
-neru scroll              # Start scroll mode
-neru action left_click   # Click at cursor (immediate)
-neru config init         # Create default config file
-neru config validate     # Validate config file
-neru config reload       # Reload config
+```
+
+### Daily use
+
+```
+neru hints               # Click UI elements via labels
+neru grid                # Navigate by coordinate grid
+neru recursive_grid      # Recursive cell-based navigation
+neru scroll              # Vim-style scrolling
+neru status              # Check daemon status
+```
+
+### Configuration
+
+```
+neru config validate     # Check config for errors (no daemon needed)
+neru config reload       # Apply changes to a running daemon
+neru config dump         # Print active config as JSON (daemon required)
 neru doctor              # Run system diagnostics
 ```
 
-**Screen Sharing:**
-
-- `neru toggle-screen-share` - Toggle overlay visibility in screen sharing
-
-**Navigation:**
-
-- `neru hints` - Show clickable hints
-- `neru grid` - Show coordinate grid
-- `neru recursive_grid` - Recursive grid selection
-- `neru scroll` - Vim-style scrolling
-
-**Actions:**
-
-- `neru action left_click` - Immediate left click at cursor
-- `neru action right_click` - Immediate right click at cursor
-- `neru hints --action right_click` - Right-click via hints
-- `neru grid --action left_click` - Left-click via grid
-
-**Configure hotkeys:** See [CONFIGURATION.md](CONFIGURATION.md#hotkeys)
+**Configure hotkeys:** See [CONFIGURATION.md — Hotkeys](CONFIGURATION.md#hotkeys)
 
 ---
 
 ## Daemon Control
 
-```bash
+```
 neru launch                                # Start daemon
 neru launch --config /path/to/config.toml  # Start with custom config file
-# or shorter:
-neru launch -c ./configs/author-config.toml
-neru start                                 # Resume paused daemon
-neru stop                                  # Pause daemon (keep running)
-neru idle                                  # Cancel active mode
+neru launch -c ./configs/my-config.toml   # Shorter form
+neru start                                 # Resume a paused daemon
+neru stop                                  # Pause daemon (keeps it running)
+neru idle                                  # Cancel the active navigation mode
 ```
 
 **Options:**
 
-- `--config, -c` - Path to custom config file
-- `--timeout` - IPC timeout in seconds (default: 5)
+| Flag           | Description                         |
+| -------------- | ----------------------------------- |
+| `--config, -c` | Path to a custom config file        |
+| `--timeout`    | IPC timeout in seconds (default: 5) |
 
-**Use `stop`** for temporary disable, **`idle`** to cancel modes.
+**`stop` vs `idle`:** Use `stop` to temporarily disable Neru without quitting it. Use `idle` to cancel whichever navigation mode is currently active.
 
 ---
 
@@ -102,184 +122,126 @@ neru idle                                  # Cancel active mode
 
 Control overlay visibility during screen sharing (Zoom, Google Meet, OBS, etc.):
 
-```bash
-neru toggle-screen-share     # Toggle overlay visibility in screen sharing
+```
+neru toggle-screen-share     # Toggle overlay visibility
 ```
 
-**Behavior:**
+**Behaviour:**
 
-- When toggled to **hidden**, the overlay will not appear in shared screens but remains visible locally
-- When toggled to **visible**, the overlay appears normally in screen sharing
-- The state resets to **visible** on Neru restart
-- Also accessible via system tray menu: "Screen Share: Visible/Hidden"
+- When toggled to **hidden**, the overlay does not appear in shared screens but remains visible locally.
+- When toggled to **visible**, the overlay appears normally in screen sharing.
+- The state resets to **visible** on daemon restart.
+- Also accessible via the system tray menu: "Screen Share: Visible/Hidden".
+
+> [!WARNING]
+> This feature uses a deprecated macOS `NSWindow.sharingType` API. Effectiveness varies by macOS version and screen sharing application. Always test with your specific setup.
+
+| macOS version | Effectiveness                         |
+| ------------- | ------------------------------------- |
+| ≤ 14          | Works reliably in most apps           |
+| 15.0 – 15.3   | Partially effective                   |
+| 15.4+         | Limited (ScreenCaptureKit-based apps) |
 
 > [!NOTE]
-> This feature uses macOS `NSWindow.sharingType` API (deprecated and no better workaround now yet). Effectiveness varies by screen sharing application:
-
-- Works reliably on macOS 14 and earlier with all applications
-- Limited effectiveness on macOS 15.4+ with modern screen capture (ScreenCaptureKit)
-- Always test with your specific video conferencing software
+> To set the default visibility state on launch, use `hide_overlay_in_screen_share` in your config file. See [CONFIGURATION.md — General Settings](CONFIGURATION.md#hide_overlay_in_screen_share).
 
 ---
 
 ## Service Management
 
-Manage Neru as a system service for automatic startup:
+Manage Neru as a system service for automatic startup on login.
 
 ### macOS (`launchd`)
 
-```bash
+```
 neru services install     # Install and load launchd service (~/Library/LaunchAgents)
 neru services status      # Check service status
 ```
 
 ### Linux (`systemd`)
 
-(Planned) Neru will support `systemctl` for managing user services.
+_(Planned)_ Neru will support `systemctl` for managing user services.
 
-### Windows (`Task Scheduler`)
+### Windows (Task Scheduler)
 
-(Planned) Neru will support Windows Task Scheduler for auto-start on login.
-
-**Installation:** Sets up Neru to start automatically on login.
+_(Planned)_ Neru will support Windows Task Scheduler for auto-start on login.
 
 > [!NOTE]
-> If you have Neru installed via other methods (Nix, Homebrew), use their respective service managers (e.g., `home-manager`).
-
----
-
-## Action Commands
-
-Perform actions at current cursor position (subcommands only):
-
-```bash
-neru action left_click          # Left click
-neru action right_click         # Right click
-neru action middle_click        # Middle click
-neru action mouse_down          # Hold mouse button
-neru action mouse_up            # Release mouse button
-
-# With modifier keys
-neru action left_click --modifier cmd          # Cmd+click (e.g. open in new tab)
-neru action left_click --modifier shift        # Shift+click (e.g. extend selection)
-neru action left_click --modifier cmd,shift    # Cmd+Shift+click
-neru action right_click --modifier alt         # Alt+right-click
-
-# Mouse movement (absolute coordinates)
-neru action move_mouse --x 500 --y 300
-
-# Mouse movement to screen center
-neru action move_mouse --center
-
-# Mouse movement to screen center with offset (both axes)
-neru action move_mouse --center --x 50 --y -30
-
-# Mouse movement to screen center with single-axis offset (omitted axis defaults to 0)
-neru action move_mouse --center --x 100
-
-# Mouse movement to center of a specific monitor (by display name)
-neru action move_mouse --center --monitor "DELL U2720Q"
-
-# Mouse movement to center of a specific monitor with offset
-neru action move_mouse --center --monitor "Built-in Retina Display" --x 50 --y -30
-
-# Mouse movement (relative from current position)
-neru action move_mouse_relative --dx 10 --dy -5
-```
-
-**Modifier option (click/mouse actions only):**
-
-- `--modifier <keys>` - Comma-separated modifier keys to hold during the action
-- Valid modifiers: `cmd` (or `command`), `shift`, `alt` (or `option`), `ctrl` (or `control`)
-- Example: `--modifier cmd,shift`
-
-**Mouse movement options:**
-
-- `move_mouse --x <pixels> --y <pixels>` - Move to absolute screen coordinates
-- `move_mouse --center` - Move to center of active screen
-- `move_mouse --center --x <pixels> --y <pixels>` - Move to center with offset (each is optional, defaults to 0)
-- `move_mouse --center --monitor <name>` - Move to center of named monitor (case-insensitive)
-- `move_mouse --center --monitor <name> --x <pixels> --y <pixels>` - Move to center of named monitor with offset
-- `move_mouse_relative --dx <pixels> --dy <pixels>` - Move by delta from current position
-
-> [!TIP]
-> Monitor names are the localized display names reported by macOS (e.g. "Built-in Retina Display", "DELL U2720Q"). You can find your display names in **System Settings → Displays**.
-> If you use the wrong name, the error message will list all available monitor names so you can copy the correct one.
+> If you installed Neru via Nix, Homebrew, or another package manager, use that tool's service manager instead (e.g. `home-manager` for Nix).
 
 ---
 
 ## Navigation Commands
 
-Neru provides four navigation modes: hints, grid, recursive-grid, and scroll. Each mode can be activated via CLI or hotkey.
+Neru provides four navigation modes. Each can be activated via CLI or a configured hotkey.
 
-### Basic Navigation
+### When to Use Which Mode
 
-```bash
-neru hints              # Show clickable hints on UI elements
-neru grid               # Show coordinate grid for screen
-neru recursive_grid     # Recursive cell-based navigation
-neru scroll             # Vim-style scrolling
+| Mode               | Best for                                                          |
+| ------------------ | ----------------------------------------------------------------- |
+| **Hints**          | Clicking buttons, links, and menus in standard macOS apps         |
+| **Grid**           | Apps with no accessibility support, or anywhere hints can't reach |
+| **Recursive Grid** | Precise positioning on large or high-resolution screens           |
+| **Scroll**         | Scrolling documents and pages without touching the mouse          |
+
+### Using the `--action` flag
+
+All navigation modes accept an `--action` (or `-a`) flag to perform a click automatically when a position is selected:
+
 ```
-
-**Using the `--action` flag:**
-
-All navigation modes support an `--action` or `-a` flag to perform an action immediately upon selection:
-
-```bash
 neru hints --action left_click           # Left-click via hints
 neru hints --action right_click          # Right-click via hints
 neru hints --action middle_click         # Middle-click via hints
 neru grid --action left_click            # Left-click via grid
-neru grid --action right_click           # Right-click via grid
 neru recursive_grid --action left_click  # Left-click via recursive-grid
 ```
 
-**Behavior:** When `--action` is specified, the action executes automatically when a location is selected, then the mode exits.
+> [!TIP]
+> The `--action` flag is most useful in hints mode, where it mirrors a Vimium-style workflow: select a label and the action fires immediately. In grid and recursive-grid modes, the action triggers only after the final cell selection, which is less ergonomic. For those modes, consider using `auto_exit_actions` in your config file instead.
 
-#### How `--action` flag works in detail in different modes
-
-This flag was introduced to imitate workflow of `vimium` style. When you are in the hint mode with `--action`, once you satifies the label (e.g. AA), it will perform the action directly.
-
-This flag is exceptionally useful for `hints` mode, but not for other modes. Right now grid mode with `--action` is a little bit silly.
-
-- Grid: it will perform the click after the last selection of sublayer (3x3)
-- Recursive Grid: it will perform the click after the last selection of the last depth
-
-Right now, i don't think anyone should use this flag other than `hints` mode, use the `auto_exit_actions` in config file might be a better choice.
+---
 
 ### Hints Mode
 
-Hint mode uses macOS Accessibility APIs to identify clickable UI elements and overlays hint labels on them.
+Hint mode uses macOS Accessibility APIs to identify clickable UI elements and overlay short labels on them. Type a label to move the cursor and perform the configured action.
 
-**Quick start:**
-
-```bash
+```
 neru hints
-# Type the hint label to select an element
-# The action (click by default) executes automatically
+# Type the hint label (e.g. "as") to select an element
 ```
 
-See [Configuration Guide](CONFIGURATION.md#hint-mode) for customization options.
+See [CONFIGURATION.md — Hint Mode](CONFIGURATION.md#hint-mode) for customisation options.
+
+---
 
 ### Grid Mode
 
-Grid mode divides the screen into a coordinate-based grid for accessibility-independent navigation.
+Grid mode divides the screen into a labelled coordinate grid. Type a row+column combination to jump to that position.
 
-**Quick start:**
-
-```bash
+```
 neru grid
-# Type row+column labels (e.g., "ab") to select position
-# The action executes automatically
+# Type row+column labels (e.g. "ab") to select a position
 ```
 
-See [Configuration Guide](CONFIGURATION.md#grid-mode) for customization options.
+See [CONFIGURATION.md — Grid Mode](CONFIGURATION.md#grid-mode) for customisation options.
+
+---
 
 ### Recursive-Grid Mode
 
-Recursive grid provides recursive cell-based navigation that works anywhere on screen. The screen is divided into a grid (default 2x2), and each selection narrows the active area.
+Recursive grid divides the screen into cells. Each keypress narrows the active area recursively until the cell is small enough to click precisely.
 
-**Default keys:**
+**Default key layout:**
+
+```
+┌───────┬───────┐
+│   u   │   i   │   u = upper-left
+├───────┼───────┤   i = upper-right
+│   j   │   k   │   j = lower-left
+└───────┴───────┘   k = lower-right
+```
+
+**All default keys:**
 
 | Key                    | Action                         |
 | ---------------------- | ------------------------------ |
@@ -287,138 +249,203 @@ Recursive grid provides recursive cell-based navigation that works anywhere on s
 | `i`                    | Upper-right cell               |
 | `j`                    | Lower-left cell                |
 | `k`                    | Lower-right cell               |
-| `Backspace` / `Delete` | Move up one depth and recenter |
-| `Space` (default)      | Reset to initial center        |
+| `Backspace` / `Delete` | Go up one level                |
+| `Space`                | Reset to initial screen center |
 | `Esc`                  | Exit mode                      |
 
-**Quick start:**
-
-```bash
+```
 neru recursive_grid
-# Press u/i/j/k to narrow selection
-# Press backspace to move up a level
-# Press space to reset to initial center
+# Press u/i/j/k to narrow the selection
+# Press Backspace to go up one level
+# Press Space to reset to the initial center
 ```
 
-See [Configuration Guide](CONFIGURATION.md#recursive-grid-mode) for customization options.
+See [CONFIGURATION.md — Recursive Grid Mode](CONFIGURATION.md#recursive-grid-mode) for customisation options.
 
 ---
 
-## Scroll Mode
+### Scroll Mode
 
-Activate vim-style scrolling at the current cursor position. Keys are configurable in your config file.
+Vim-style scrolling at the current cursor position. Keys are fully configurable.
 
 **Default scroll keys:**
 
-- `j` / `k` - Scroll down/up
-- `h` / `l` - Scroll left/right
-- `d` / `u` - Half-page down/up
-- `gg` - Jump to top
-- `Shift+G` - Jump to bottom
-- `Esc` - Exit scroll mode
+| Key       | Action              |
+| --------- | ------------------- |
+| `j` / `k` | Scroll down / up    |
+| `h` / `l` | Scroll left / right |
+| `d` / `u` | Half-page down / up |
+| `gg`      | Jump to top         |
+| `Shift+G` | Jump to bottom      |
+| `Esc`     | Exit scroll mode    |
 
-**Customization:** See `[scroll.key_bindings]` in your config file. Each action can have multiple keys, including modifier combinations (e.g., `Cmd+Up`) and multi-key sequences (e.g., `gg`).
-
-**Workflow example:**
-
-```bash
-# Start scroll mode
-neru scroll
-# Scrolls at current cursor position
-# Use j/k/gg/G/d/u to scroll (or your custom bindings)
-# Press Esc to exit
 ```
+neru scroll
+# Use j/k to scroll, gg/G to jump, Esc to exit
+```
+
+See [CONFIGURATION.md — Scroll Mode](CONFIGURATION.md#scroll-mode) for configuring step sizes and custom key bindings.
+
+---
+
+## Action Commands
+
+Perform mouse actions at the current cursor position. These work as immediate one-shot commands — no navigation mode required.
+
+```
+neru action left_click          # Left click
+neru action right_click         # Right click
+neru action middle_click        # Middle click
+neru action mouse_down          # Hold mouse button
+neru action mouse_up            # Release mouse button
+```
+
+### Modifier keys
+
+Hold a modifier during a click using `--modifier`:
+
+```
+neru action left_click --modifier cmd          # Cmd+click (open in new tab)
+neru action left_click --modifier shift        # Shift+click (extend selection)
+neru action left_click --modifier cmd,shift    # Cmd+Shift+click
+neru action right_click --modifier alt         # Alt+right-click
+```
+
+**Valid modifiers:** `cmd` (or `command`), `shift`, `alt` (or `option`), `ctrl` (or `control`). Combine with commas: `--modifier cmd,shift`.
+
+### Mouse movement
+
+**Absolute position:**
+
+```
+neru action move_mouse --x 500 --y 300
+```
+
+**Screen center:**
+
+```
+neru action move_mouse --center
+neru action move_mouse --center --x 50 --y -30    # Center with offset
+neru action move_mouse --center --x 100            # Single-axis offset (y defaults to 0)
+```
+
+**Named monitor:**
+
+```
+neru action move_mouse --center --monitor "DELL U2720Q"
+neru action move_mouse --center --monitor "Built-in Retina Display" --x 50 --y -30
+```
+
+**Relative movement:**
+
+```
+neru action move_mouse_relative --dx 10 --dy -5
+```
+
+**`move_mouse` flag reference:**
+
+| Flag               | Description                                                  |
+| ------------------ | ------------------------------------------------------------ |
+| `--x <px>`         | Absolute X coordinate, or X offset when used with `--center` |
+| `--y <px>`         | Absolute Y coordinate, or Y offset when used with `--center` |
+| `--center`         | Move to the center of the active screen                      |
+| `--monitor <name>` | Target a named display (requires `--center`)                 |
+
+> [!TIP]
+> Monitor names are the display names reported by macOS (e.g. "Built-in Retina Display", "DELL U2720Q"). Find yours in **System Settings → Displays**. If you use an incorrect name, the error message will list all available names.
 
 ---
 
 ## Configuration Management
 
-Manage the Neru configuration file without starting the daemon (except `dump` and `reload`, which require a running instance).
+These commands manage the Neru config file. Note which ones require a running daemon:
 
-### `config init`
+### `config init` — no daemon needed
 
-Create a default configuration file with all options documented:
+Create a default config file with all options documented:
 
-```bash
-neru config init        # Create at $XDG_CONFIG_HOME/neru/config.toml or ~/.config/neru/config.toml
-neru config init -f     # Overwrite an existing config file
+```
+neru config init                           # Create at ~/.config/neru/config.toml
+neru config init -f                        # Overwrite an existing file
 neru config init -c /path/to/config.toml  # Create at a custom path
 ```
 
-**Options:**
+| Flag           | Description                       |
+| -------------- | --------------------------------- |
+| `--force, -f`  | Overwrite an existing config file |
+| `--config, -c` | Write to a custom path            |
 
-- `--force, -f` — Overwrite an existing config file
-- `--config, -c` — Write to a custom path instead of the default location
-  The generated file is a fully-commented copy of the built-in defaults, ready to customize. See [CONFIGURATION.md](CONFIGURATION.md) for the full reference.
+The generated file is a fully-commented copy of the built-in defaults, ready to customise. See [CONFIGURATION.md](CONFIGURATION.md) for the full reference.
 
-### `config validate`
+### `config validate` — no daemon needed
 
-Check the configuration file for syntax errors, invalid values, and conflicts — without starting the daemon:
+Check the config file for syntax errors, invalid values, and conflicts:
 
-```bash
-neru config validate                        # Validate config in standard locations
+```
+neru config validate                          # Validate config in standard locations
 neru config validate -c /path/to/config.toml  # Validate a specific file
 ```
 
-If no config file is found, the command exits successfully with a note that defaults will be used.
+If no config file is found, the command exits successfully — Neru will use its built-in defaults.
 
-### `config dump`
+### `config dump` — requires running daemon
 
-Print the currently active configuration as JSON (requires a running daemon):
+Print the currently active configuration as JSON:
 
-```bash
+```
 neru config dump
 ```
 
-### `config reload`
+### `config reload` — requires running daemon
 
-Reload the configuration from disk without restarting (requires a running daemon):
+Reload the configuration from disk without restarting:
 
-```bash
+```
 neru config reload
 ```
 
 > [!NOTE]
-> Some settings (e.g., `systray.enabled`) require a full restart. See [CONFIGURATION.md](CONFIGURATION.md) for details.
+> Some settings (e.g. `systray.enabled`) require a full daemon restart and cannot be applied with `reload`. See [CONFIGURATION.md](CONFIGURATION.md) for details on which settings this affects.
 
 ---
 
 ## Status & Info
 
-```bash
-neru status                               # Daemon status and mode
-neru doctor                               # Full system diagnostics
-neru --version                            # Version info
+```
+neru status        # Daemon status and current mode
+neru doctor        # Full system diagnostics
+neru --version     # Version info
 ```
 
 **Status values:** `running`, `disabled`
+
 **Mode values:** `idle`, `hints`, `grid`, `recursive_grid`, `scroll`
 
 > [!TIP]
-> Use neru doctor as your first debugging step — unlike neru status, it works even when the daemon isn't running and checks config validity, socket health, and all internal components.
+> Use `neru doctor` as your first debugging step. Unlike `neru status`, it works even when the daemon isn't running and checks config validity, socket health, and all internal components.
 
 ---
 
-## Shell Integration
+## Shell Completions
 
-### Health Check
+Add tab-completion for all Neru commands and flags.
+
+**Bash:**
 
 ```bash
-neru doctor    # Run comprehensive system diagnostics
+neru completion bash > /usr/local/etc/bash_completion.d/neru
 ```
 
-### Completions
+**Zsh:**
 
-Generate shell completions:
-
-```bash
-# Bash
-neru completion bash > /usr/local/etc/bash_completion.d/neru
-
-# Zsh
+```zsh
 neru completion zsh > "${fpath[1]}/_neru"
+exec zsh  # Reload shell to activate
+```
 
-# Fish
+**Fish:**
+
+```fish
 neru completion fish > ~/.config/fish/completions/neru.fish
 ```
 
@@ -426,7 +453,7 @@ neru completion fish > ~/.config/fish/completions/neru.fish
 
 ## Scripting
 
-### Toggle Script
+### Toggle daemon on/off
 
 ```bash
 #!/bin/bash
@@ -438,7 +465,7 @@ else
 fi
 ```
 
-### External Hotkeys (skhd)
+### External hotkey manager (skhd)
 
 ```bash
 # ~/.config/skhd/skhdrc
@@ -447,7 +474,7 @@ ctrl - g : neru grid
 ctrl - r : neru hints --action right_click
 ```
 
-### Status Check
+### Status check in scripts
 
 ```bash
 neru status &>/dev/null && echo "Running" || echo "Not running"
@@ -459,37 +486,35 @@ neru status &>/dev/null && echo "Running" || echo "Not running"
 
 ### IPC Communication
 
-CLI and daemon communicate via Unix socket (typically `/var/folders/.../T/neru.sock`) using JSON messages.
+The CLI and daemon communicate via a Unix domain socket (typically `/var/folders/.../T/neru.sock`) using JSON messages.
 
-**Request:**
+**Request format:**
 
 ```json
 { "action": "hints", "params": {}, "args": [] }
 ```
 
-**Response:**
+**Response format:**
 
 ```json
 { "success": true, "message": "OK", "code": "OK" }
 ```
 
+Commands are queued by the daemon, so concurrent calls from scripts work safely.
+
 ### Error Codes
 
-Structured error codes for scripting:
-
-- `ERR_MODE_DISABLED` - Mode disabled in config
-- `ERR_UNKNOWN_COMMAND` - Invalid command
-- Connection errors when daemon not running
-
-### Concurrency
-
-Multiple CLI commands run concurrently, processed sequentially by daemon.
+| Code                  | Meaning                                  |
+| --------------------- | ---------------------------------------- |
+| `ERR_MODE_DISABLED`   | The requested mode is disabled in config |
+| `ERR_UNKNOWN_COMMAND` | Invalid command name                     |
+| _(connection error)_  | Daemon is not running                    |
 
 ### Log Monitoring
 
 ```bash
-tail -f ~/Library/Logs/neru/app.log
-grep ERROR ~/Library/Logs/neru/app.log
+tail -f ~/Library/Logs/neru/app.log      # Real-time log stream
+grep ERROR ~/Library/Logs/neru/app.log   # Errors only
 ```
 
 ---
@@ -501,28 +526,27 @@ grep ERROR ~/Library/Logs/neru/app.log
 If a command hangs, the daemon may be stuck:
 
 ```bash
-# Force quit daemon
-pkill -9 neru
-
-# Restart
-neru launch
+pkill -9 neru    # Force quit
+neru launch      # Restart
 ```
 
 ### Socket permission errors
 
-If you get permission errors on the IPC socket:
-
 ```bash
-# Remove stale socket (path is printed in logs; typically under /var/folders/.../T)
+# Find the socket path from logs and remove it:
+SOCK=$(grep "socket path" ~/Library/Logs/neru/app.log | tail -1 | awk '{print $NF}')
+rm -f "$SOCK"
+
+# Or use the glob (works on most macOS versions):
 rm -f /var/folders/*/*/T/neru.sock
 
-# Restart daemon
+# Then restart:
 neru launch
 ```
 
 ### Commands not working
 
-Verify daemon is running:
+Verify the daemon is running:
 
 ```bash
 neru status
@@ -532,4 +556,10 @@ If not running:
 
 ```bash
 neru launch
+```
+
+For a thorough diagnosis of any issue:
+
+```bash
+neru doctor
 ```

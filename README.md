@@ -10,6 +10,7 @@
 ![Platform](<https://img.shields.io/badge/platform-macOS%20(stable)%20%7C%20Linux%20%26%20Windows%20(WIP)-lightgrey>)
 ![Go Version](https://img.shields.io/github/go-mod/go-version/y3owk1n/neru)
 [![Latest Release](https://img.shields.io/github/v/release/y3owk1n/neru)](https://github.com/y3owk1n/neru/releases)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/y3owk1n/neru)
 
 [**Features**](#-features) · [**Get Started**](#-get-started) · [**Docs**](#-documentation) · [**Platform Support**](#-platform-support)
 

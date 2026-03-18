@@ -181,7 +181,6 @@ Want inspiration? Check out other users' configs in the [community discussion �
 | ------------------------------------------------------ | ------------- | ------------------------------- | ----- | --------------- |
 | [warpd](https://github.com/rvaiya/warpd)               | macOS + Linux | Hints + Grid + Normal mode      | Free  | ⚠️ Low activity |
 | [mousemaster](https://github.com/petoncle/mousemaster) | Windows       | Hints + Grid + Normal mode      | Free  | ✅ Active       |
-| [Mouseable](https://github.com/evansalter/mouseable)   | Windows       | Keyboard-driven mouse emulation | Free  | ✅ Active       |
 
 ### Browser extensions
 

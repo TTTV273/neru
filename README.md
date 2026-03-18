@@ -171,7 +171,7 @@ Want inspiration? Check out other users' configs in the [community discussion �
 | [Homerow](https://www.homerow.app/)          | Hints (fuzzy search + labels)          | Paid     | ✅ Active       | ❌ No       |
 | [Wooshy](https://wooshy.app)                 | Hints (search-to-click, minimalist UI) | Paid     | ✅ Active       | ❌ No       |
 | [Mouseless](https://mouseless.click/)        | Grid-based pointer control             | Paid     | ✅ Active       | ❌ No       |
-| [Shortcat](https://shortcat.app/)            | Hints (fuzzy search)                   | Paid     | ❌ Discontinued | ❌ No       |
+| [Shortcat](https://shortcat.app/)            | Hints (fuzzy search)                   | Free     | ❌ Discontinued | ❌ No       |
 | [Vimac](https://github.com/dexterleng/vimac) | Hints + Grid (Homerow's predecessor)   | Free     | ⚠️ Unmaintained | ✅ Yes      |
 | [warpd](https://github.com/rvaiya/warpd)     | Hints + Grid + Normal mode             | Free     | ⚠️ Low activity | ✅ Yes      |
 

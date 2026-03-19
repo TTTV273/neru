@@ -156,7 +156,7 @@ Config file location: `~/.config/neru/config.toml`
 
 See the full [Configuration Reference →](docs/CONFIGURATION.md)
 
-Want inspiration? Check out other users' configs in the [community discussion →](https://github.com/y3owk1n/neru/discussions/542)
+Want inspiration? Check out other users' configs in the [community showcases →](/docs/CONFIG_SHOWCASES.md)
 
 ---
 

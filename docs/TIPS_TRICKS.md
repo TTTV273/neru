@@ -150,4 +150,4 @@ Useful for apps where you frequently need a right-click menu (e.g. Finder, VS Co
 - [Configuration Reference](CONFIGURATION.md) — every TOML option explained
 - [CLI Usage](CLI.md) — all commands and flags
 - [Troubleshooting](TROUBLESHOOTING.md) — common issues and fixes
-- [Community configs](https://github.com/y3owk1n/neru/discussions/542) — see how others configure Neru
+- [Community configs](CONFIG_SHOWCASES.md) — see how others configure Neru

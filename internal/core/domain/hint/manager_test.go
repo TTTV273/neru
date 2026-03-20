@@ -3,6 +3,7 @@ package hint_test
 import (
 	"context"
 	"image"
+	"sync"
 	"testing"
 
 	"github.com/y3owk1n/neru/internal/core/domain/element"
@@ -169,6 +170,143 @@ func TestCollection_Empty(t *testing.T) {
 	if nonEmpty.Empty() {
 		t.Error("Non-empty collection should return false for Empty()")
 	}
+}
+
+func TestManager_ImmediateUpdatePanicsWithoutExternalMu(t *testing.T) {
+	// When externalMu is set, HandleInput's immediate-update path must be
+	// called while the caller holds externalMu. This test verifies the
+	// runtime assertion fires when the lock is NOT held.
+	var mut sync.Mutex
+
+	elem, _ := element.NewElement(element.ID("1"), image.Rect(0, 0, 10, 10), element.RoleButton)
+	h1, _ := hint.NewHint("AA", elem, image.Point{0, 0})
+	h2, _ := hint.NewHint("AB", elem, image.Point{0, 0})
+	collection := hint.NewCollection([]*hint.Interface{h1, h2})
+	manager := hint.NewManager(logger.Get(), &mut, "")
+	manager.SetUpdateCallback(func(_ []*hint.Interface) {})
+	// SetHints must be called while holding externalMu (mirrors production).
+	mut.Lock()
+	manager.SetHints(collection)
+	mut.Unlock()
+	// Calling HandleInput WITHOUT holding mu should panic on the
+	// immediate-update path (same count → immediateUpdate).
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("Expected panic when immediateUpdate called without holding externalMu")
+		}
+	}()
+	// "A" narrows to 2 hints (AA, AB) — same count as the full set (2),
+	// so this triggers immediateUpdate which should panic.
+	manager.HandleInput("A")
+}
+
+func TestManager_SetHintsPanicsWithoutExternalMu(t *testing.T) {
+	// SetHints invokes the onUpdate callback synchronously, so the caller
+	// must hold externalMu. Verify the assertion fires when it is NOT held.
+	var mut sync.Mutex
+
+	elem, _ := element.NewElement(element.ID("1"), image.Rect(0, 0, 10, 10), element.RoleButton)
+	h1, _ := hint.NewHint("AA", elem, image.Point{0, 0})
+	collection := hint.NewCollection([]*hint.Interface{h1})
+	manager := hint.NewManager(logger.Get(), &mut, "")
+	manager.SetUpdateCallback(func(_ []*hint.Interface) {})
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("Expected panic when SetHints called without holding externalMu")
+		}
+	}()
+	// Calling SetHints WITHOUT holding mut should panic.
+	manager.SetHints(collection)
+}
+
+func TestManager_ResetPanicsWithoutExternalMu(t *testing.T) {
+	// Reset invokes the onUpdate callback synchronously, so the caller
+	// must hold externalMu. Verify the assertion fires when it is NOT held.
+	var mut sync.Mutex
+
+	elem, _ := element.NewElement(element.ID("1"), image.Rect(0, 0, 10, 10), element.RoleButton)
+	h1, _ := hint.NewHint("AA", elem, image.Point{0, 0})
+	collection := hint.NewCollection([]*hint.Interface{h1})
+	manager := hint.NewManager(logger.Get(), &mut, "")
+	manager.SetUpdateCallback(func(_ []*hint.Interface) {})
+	// SetHints must be called while holding externalMu.
+	mut.Lock()
+	manager.SetHints(collection)
+	mut.Unlock()
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("Expected panic when Reset called without holding externalMu")
+		}
+	}()
+	// Calling Reset WITHOUT holding mut should panic.
+	manager.Reset()
+}
+
+func TestManager_ImmediateUpdateSucceedsWithExternalMu(t *testing.T) {
+	// Mirror the production call pattern: hold externalMu, then call
+	// HandleInput. The immediate-update path should succeed without panic.
+	var mut sync.Mutex
+
+	elem, _ := element.NewElement(element.ID("1"), image.Rect(0, 0, 10, 10), element.RoleButton)
+	h1, _ := hint.NewHint("AA", elem, image.Point{0, 0})
+	h2, _ := hint.NewHint("AB", elem, image.Point{0, 0})
+	collection := hint.NewCollection([]*hint.Interface{h1, h2})
+	manager := hint.NewManager(logger.Get(), &mut, "")
+
+	var callbackCalled bool
+	manager.SetUpdateCallback(func(_ []*hint.Interface) {
+		callbackCalled = true
+	})
+	mut.Lock()
+	manager.SetHints(collection)
+	// "A" narrows to 2 hints (AA, AB) — same count → immediateUpdate.
+	// Caller holds mu, so the assertion should pass.
+	manager.HandleInput("A")
+	mut.Unlock()
+
+	if !callbackCalled {
+		t.Error("Expected callback to be called via immediateUpdate")
+	}
+}
+
+func TestManager_NoMatchRepeatedUsesImmediateUpdate(t *testing.T) {
+	// When the user types an invalid key that resets to the full set, and
+	// then types another invalid key (still the full set), the count
+	// doesn't change so the no-match path should use immediateUpdate
+	// (synchronous callback) rather than debouncedUpdate.
+	var mut sync.Mutex
+
+	elem, _ := element.NewElement(element.ID("1"), image.Rect(0, 0, 10, 10), element.RoleButton)
+	h1, _ := hint.NewHint("AA", elem, image.Point{0, 0})
+	h2, _ := hint.NewHint("AB", elem, image.Point{0, 0})
+	collection := hint.NewCollection([]*hint.Interface{h1, h2})
+	manager := hint.NewManager(logger.Get(), &mut, "")
+	callCount := 0
+	manager.SetUpdateCallback(func(_ []*hint.Interface) {
+		callCount++
+	})
+	mut.Lock()
+	manager.SetHints(collection)
+	// First invalid key "X" → no match, resets to full set (count 2).
+	// Previous count was 2 (from SetHints), so same count → immediateUpdate.
+	manager.HandleInput("X")
+
+	if callCount != 2 { // 1 from SetHints + 1 from HandleInput("X")
+		t.Errorf("Expected 2 callback calls after first invalid key, got %d", callCount)
+	}
+	// Second invalid key "Z" → no match again, full set (count 2).
+	// Previous count was 2, same count → immediateUpdate (synchronous).
+	manager.HandleInput("Z")
+
+	if callCount != 3 { // +1 synchronous callback
+		t.Errorf("Expected 3 callback calls after second invalid key, got %d", callCount)
+	}
+	mut.Unlock()
 }
 
 func TestManager_AcceptsNonLetterCharacters(t *testing.T) {

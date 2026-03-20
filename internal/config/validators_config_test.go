@@ -2455,7 +2455,8 @@ func TestConfig_ValidatePerModeExitKeys(t *testing.T) {
 			config: func() config.Config {
 				cfg := *config.DefaultConfig()
 				cfg.Scroll.ModeExitKeys = []string{"Up"}
-				// Default scroll_up = ["k", "Up"]
+				cfg.Scroll.KeyBindings["scroll_up"] = []string{"k", "Up"}
+
 				return cfg
 			},
 			wantErr: true,
@@ -2465,7 +2466,7 @@ func TestConfig_ValidatePerModeExitKeys(t *testing.T) {
 			config: func() config.Config {
 				cfg := *config.DefaultConfig()
 				cfg.Scroll.ModeExitKeys = []string{"g"}
-				// Default go_top = ["gg", "Cmd+Up"] — "g" is a prefix of "gg"
+				// Default go_top = ["gg"] — "g" is a prefix of "gg"
 				return cfg
 			},
 			wantErr: true,
@@ -2546,14 +2547,14 @@ func TestConfig_Validate_PerModeExitKeysActionKeyConflicts(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "scroll per-mode exit key does NOT check action bindings (scroll has no action keys)",
+			name: "scroll per-mode exit key conflicts with left_click binding",
 			config: func() config.Config {
 				cfg := *config.DefaultConfig()
 				cfg.Scroll.ModeExitKeys = []string{"Shift+L"}
-				// Even though left_click = "Shift+L", scroll mode doesn't use action keys
+				// Default left_click = "Shift+L", scroll mode now uses action keys
 				return cfg
 			},
-			wantErr: false,
+			wantErr: true,
 		},
 		{
 			name: "no conflict when per-mode exit key differs from all action bindings",
@@ -2620,6 +2621,207 @@ func TestConfig_Validate_PerModeExitKeysActionKeyConflicts(t *testing.T) {
 			wantErr: true,
 		},
 	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg := testCase.config()
+
+			err := cfg.Validate()
+			if (err != nil) != testCase.wantErr {
+				t.Errorf(
+					"Config.Validate() error = %v, wantErr %v",
+					err,
+					testCase.wantErr,
+				)
+			}
+		})
+	}
+}
+
+// TestConfig_Validate_ScrollKeyBindingsActionKeyConflicts tests that scroll key bindings
+// cannot overlap with action key bindings (checked via full Validate()).
+func TestConfig_Validate_ScrollKeyBindingsActionKeyConflicts(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  func() config.Config
+		wantErr bool
+	}{
+		{
+			name: "scroll binding conflicts with move_mouse_up (arrow key overlap)",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				cfg.Scroll.KeyBindings["scroll_up"] = []string{"k", "Up"}
+				// Default move_mouse_up = "Up"
+				return cfg
+			},
+			wantErr: true,
+		},
+		{
+			name: "scroll binding conflicts with left_click",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				cfg.Scroll.KeyBindings["scroll_up"] = []string{"Shift+L"}
+				// Default left_click = "Shift+L"
+				return cfg
+			},
+			wantErr: true,
+		},
+		{
+			name: "scroll binding case-insensitive conflict with action binding",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				cfg.Scroll.KeyBindings["scroll_down"] = []string{"shift+l"}
+				cfg.Action.KeyBindings.LeftClick = "Shift+L"
+
+				return cfg
+			},
+			wantErr: true,
+		},
+		{
+			name: "no conflict with default scroll bindings (arrow keys removed)",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				// Default scroll bindings no longer include arrow keys
+				return cfg
+			},
+			wantErr: false,
+		},
+		{
+			name: "no conflict when action binding is empty",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				cfg.Scroll.KeyBindings["scroll_up"] = []string{"Up"}
+				cfg.Action.KeyBindings.MoveMouseUp = ""
+
+				return cfg
+			},
+			wantErr: false,
+		},
+		{
+			name: "scroll binding conflicts with custom action binding",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				cfg.Scroll.KeyBindings["page_up"] = []string{"Ctrl+U"}
+				cfg.Action.KeyBindings.MouseUp = "Ctrl+U"
+
+				return cfg
+			},
+			wantErr: true,
+		},
+		{
+			name: "no conflict when scroll bindings are empty",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				cfg.Scroll.KeyBindings = map[string][]string{}
+
+				return cfg
+			},
+			wantErr: false,
+		},
+		{
+			name: "scroll sequence prefix conflicts with action binding (e.g. action 'g' vs scroll 'gg')",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				cfg.Scroll.KeyBindings["go_top"] = []string{"gg"}
+				cfg.Action.KeyBindings.LeftClick = "g"
+
+				return cfg
+			},
+			wantErr: true,
+		},
+		{
+			name: "scroll sequence no prefix conflict when action binding differs",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				cfg.Scroll.KeyBindings["go_top"] = []string{"gg"}
+				cfg.Action.KeyBindings.LeftClick = "x"
+
+				return cfg
+			},
+			wantErr: false,
+		},
+		{
+			name: "scroll sequence prefix conflict case-insensitive",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				cfg.Scroll.KeyBindings["go_top"] = []string{"GG"}
+				cfg.Action.KeyBindings.LeftClick = "g"
+
+				return cfg
+			},
+			wantErr: true,
+		},
+		{
+			name: "scroll uppercase letter shadowed by Shift+Letter action binding",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				cfg.Scroll.KeyBindings["go_bottom"] = []string{"G"}
+				cfg.Action.KeyBindings.LeftClick = "Shift+G"
+
+				return cfg
+			},
+			wantErr: true,
+		},
+		{
+			name: "scroll lowercase letter not shadowed by Shift+Letter action binding",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				cfg.Scroll.KeyBindings["scroll_up"] = []string{"g"}
+				// Remove default go_bottom = ["Shift+G"] to isolate the test
+				delete(cfg.Scroll.KeyBindings, "go_bottom")
+				cfg.Action.KeyBindings.LeftClick = "Shift+G"
+
+				return cfg
+			},
+			wantErr: false,
+		},
+		{
+			name: "no Shift+Letter shadow when action binding is empty",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				cfg.Scroll.KeyBindings["go_bottom"] = []string{"G"}
+				cfg.Action.KeyBindings.LeftClick = ""
+
+				return cfg
+			},
+			wantErr: false,
+		},
+		{
+			name: "reverse Shift+Letter shadow: action 'G' vs scroll 'Shift+G'",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				cfg.Scroll.KeyBindings["go_bottom"] = []string{"Shift+G"}
+				cfg.Action.KeyBindings.LeftClick = "G"
+
+				return cfg
+			},
+			wantErr: true,
+		},
+		{
+			name: "no reverse Shift+Letter shadow when action is lowercase",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				cfg.Scroll.KeyBindings["go_bottom"] = []string{"Shift+G"}
+				// Remove go_top = ["gg"] to avoid prefix conflict with "g"
+				delete(cfg.Scroll.KeyBindings, "go_top")
+				cfg.Action.KeyBindings.LeftClick = "g"
+
+				return cfg
+			},
+			wantErr: false,
+		},
+		{
+			name: "no reverse Shift+Letter shadow when action binding is empty",
+			config: func() config.Config {
+				cfg := *config.DefaultConfig()
+				cfg.Scroll.KeyBindings["go_bottom"] = []string{"Shift+G"}
+				cfg.Action.KeyBindings.LeftClick = ""
+
+				return cfg
+			},
+			wantErr: false,
+		},
+	}
+
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			cfg := testCase.config()

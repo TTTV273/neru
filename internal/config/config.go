@@ -314,7 +314,7 @@ type ActionConfig struct {
 	MoveMouseStep int                  `json:"moveMouseStep" toml:"move_mouse_step"`
 }
 
-// ActionKeyBindingsCfg defines direct action keybindings for use in hints/grid mode.
+// ActionKeyBindingsCfg defines direct action keybindings for use in hints/grid/scroll mode.
 type ActionKeyBindingsCfg struct {
 	LeftClick      string `json:"leftClick"      toml:"left_click"`
 	RightClick     string `json:"rightClick"     toml:"right_click"`
@@ -443,10 +443,11 @@ type HotkeysConfig struct {
 
 // ScrollConfig defines the behavior and appearance settings for scroll mode.
 type ScrollConfig struct {
-	ScrollStep     int      `json:"scrollStep"     toml:"scroll_step"`
-	ScrollStepHalf int      `json:"scrollStepHalf" toml:"scroll_step_half"`
-	ScrollStepFull int      `json:"scrollStepFull" toml:"scroll_step_full"`
-	ModeExitKeys   []string `json:"modeExitKeys"   toml:"mode_exit_keys"`
+	ScrollStep      int      `json:"scrollStep"      toml:"scroll_step"`
+	ScrollStepHalf  int      `json:"scrollStepHalf"  toml:"scroll_step_half"`
+	ScrollStepFull  int      `json:"scrollStepFull"  toml:"scroll_step_full"`
+	AutoExitActions []string `json:"autoExitActions" toml:"auto_exit_actions"`
+	ModeExitKeys    []string `json:"modeExitKeys"    toml:"mode_exit_keys"`
 
 	KeyBindings map[string][]string `json:"keyBindings" toml:"key_bindings"`
 }
@@ -747,6 +748,14 @@ func (c *Config) Validate() error {
 	// At runtime, exit keys are checked before action keys (in key_dispatch.go),
 	// so a conflict means the action will never fire.
 	err = c.checkPerModeExitKeysActionKeyConflicts()
+	if err != nil {
+		return err
+	}
+
+	// Validate scroll key bindings don't conflict with action key bindings.
+	// At runtime, action keys are checked before scroll keys (in scroll.go),
+	// so a conflict means the scroll binding will never fire.
+	err = c.checkScrollKeyBindingsActionKeyConflicts()
 	if err != nil {
 		return err
 	}
@@ -1101,6 +1110,14 @@ func (c *Config) ValidateScroll() error {
 	}
 
 	err = c.ValidateScrollKeyBindings()
+	if err != nil {
+		return err
+	}
+
+	err = validateAutoExitActions(
+		c.Scroll.AutoExitActions,
+		"scroll.auto_exit_actions",
+	)
 	if err != nil {
 		return err
 	}

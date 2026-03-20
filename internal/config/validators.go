@@ -1725,10 +1725,123 @@ func checkPerModeExitKeysResetKeyConflict(
 	return nil
 }
 
+// checkScrollKeyBindingsActionKeyConflicts checks if any scroll key binding conflicts
+// with an action key binding. At runtime, action keys are checked before scroll keys
+// (in scroll.go handleGenericScrollKey), so a conflict means the scroll binding will
+// never fire — the action will always take priority.
+func (c *Config) checkScrollKeyBindingsActionKeyConflicts() error {
+	bindings := []struct {
+		value     string
+		fieldName string
+	}{
+		{c.Action.KeyBindings.LeftClick, "action.key_bindings.left_click"},
+		{c.Action.KeyBindings.RightClick, "action.key_bindings.right_click"},
+		{c.Action.KeyBindings.MiddleClick, "action.key_bindings.middle_click"},
+		{c.Action.KeyBindings.MouseDown, "action.key_bindings.mouse_down"},
+		{c.Action.KeyBindings.MouseUp, "action.key_bindings.mouse_up"},
+		{c.Action.KeyBindings.MoveMouseUp, "action.key_bindings.move_mouse_up"},
+		{c.Action.KeyBindings.MoveMouseDown, "action.key_bindings.move_mouse_down"},
+		{c.Action.KeyBindings.MoveMouseLeft, "action.key_bindings.move_mouse_left"},
+		{c.Action.KeyBindings.MoveMouseRight, "action.key_bindings.move_mouse_right"},
+	}
+	for scrollAction, keys := range c.Scroll.KeyBindings {
+		for _, scrollKey := range keys {
+			normalizedScrollKey := NormalizeKeyForComparison(scrollKey)
+			for _, binding := range bindings {
+				if binding.value == "" {
+					continue
+				}
+
+				if normalizedScrollKey == NormalizeKeyForComparison(binding.value) {
+					return derrors.Newf(
+						derrors.CodeInvalidConfig,
+						"scroll.key_bindings['%s'] contains '%s' which conflicts with %s ('%s'); the action key is checked first at runtime, so the scroll binding will never fire",
+						scrollAction,
+						scrollKey,
+						binding.fieldName,
+						binding.value,
+					)
+				}
+
+				// Check prefix conflicts: an action key that matches the first
+				// character of a multi-letter scroll sequence (e.g. action "g"
+				// vs scroll "gg") will consume the keystroke before the scroll
+				// handler can start the sequence, silently breaking it.
+				if len(scrollKey) >= 2 && IsAllLetters(scrollKey) {
+					prefix := strings.ToLower(scrollKey[:1])
+					if prefix == NormalizeKeyForComparison(binding.value) {
+						return derrors.Newf(
+							derrors.CodeInvalidConfig,
+							"scroll.key_bindings['%s'] sequence '%s' starts with '%s' which conflicts with %s ('%s'); the action key is checked first at runtime, so the sequence can never start",
+							scrollAction,
+							scrollKey,
+							prefix,
+							binding.fieldName,
+							binding.value,
+						)
+					}
+				}
+
+				// Check Shift+Letter fallback shadow: at runtime, both the
+				// action service and scroll keymap treat a bare uppercase
+				// letter (e.g. "G") as also matching "Shift+G". If a scroll
+				// binding uses a single uppercase letter and an action binding
+				// is "Shift+<that letter>", the action service will match
+				// first via the fallback, silently shadowing the scroll
+				// binding.
+				if len(scrollKey) == 1 {
+					r := rune(scrollKey[0])
+					if r >= 'A' && r <= 'Z' {
+						shiftForm := NormalizeKeyForComparison("Shift+" + scrollKey)
+						if shiftForm == NormalizeKeyForComparison(binding.value) {
+							return derrors.Newf(
+								derrors.CodeInvalidConfig,
+								"scroll.key_bindings['%s'] contains '%s' which conflicts with %s ('%s') via Shift+Letter fallback; the action key is checked first at runtime, so the scroll binding will never fire",
+								scrollAction,
+								scrollKey,
+								binding.fieldName,
+								binding.value,
+							)
+						}
+					}
+				}
+
+				// Reverse Shift+Letter shadow: if the action binding is a
+				// bare uppercase letter (e.g. "G") and a scroll binding is
+				// "Shift+G", the action service's direct match will consume
+				// bare "G" events before the scroll keymap sees them. The
+				// scroll binding only works when the event tap sends the full
+				// "Shift+G" modifier form, leading to inconsistent behavior.
+				if len(binding.value) == 1 {
+					r := rune(binding.value[0])
+					if r >= 'A' && r <= 'Z' {
+						actionShiftForm := NormalizeKeyForComparison(
+							"Shift+" + binding.value,
+						)
+						if normalizedScrollKey == actionShiftForm {
+							return derrors.Newf(
+								derrors.CodeInvalidConfig,
+								"scroll.key_bindings['%s'] contains '%s' which conflicts with %s ('%s') via reverse Shift+Letter fallback; the action key consumes bare '%s' events at runtime, so the scroll binding will only work inconsistently",
+								scrollAction,
+								scrollKey,
+								binding.fieldName,
+								binding.value,
+								binding.value,
+							)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 // checkPerModeExitKeysActionKeyConflicts checks if any per-mode exit key conflicts with
 // an action key binding. At runtime, exit keys are checked before action keys
 // (in key_dispatch.go), so a conflict means the action key will never fire — the mode
-// will exit instead. Only hints, grid, and recursive_grid modes use action keys.
+// will exit instead.
 func (c *Config) checkPerModeExitKeysActionKeyConflicts() error {
 	bindings := []struct {
 		value     string
@@ -1751,10 +1864,12 @@ func (c *Config) checkPerModeExitKeysActionKeyConflicts() error {
 		isEnabled bool
 	}
 
+	// Scroll mode is always available (no "enabled" toggle), so use true.
 	modes := []modeExitKeys{
 		{c.Hints.ModeExitKeys, "hints", c.Hints.Enabled},
 		{c.Grid.ModeExitKeys, "grid", c.Grid.Enabled},
 		{c.RecursiveGrid.ModeExitKeys, "recursive_grid", c.RecursiveGrid.Enabled},
+		{c.Scroll.ModeExitKeys, "scroll", true},
 	}
 	for _, mode := range modes {
 		if !mode.isEnabled || len(mode.keys) == 0 {

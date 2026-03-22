@@ -79,4 +79,12 @@ void setEventTapPassthroughCallback(EventTap tap, EventTapPassthroughCallback ca
 /// @param enabled Non-zero to enable, zero to disable
 void setEventTapStickyModifierToggle(EventTap tap, int enabled);
 
-#endif // EVENTTAP_H
+#pragma mark - Standalone Utilities
+
+/// Post a physical modifier key-down or key-up event to macOS.
+/// This is a standalone utility that does not require an event tap handle.
+/// @param modifier One of "cmd", "shift", "alt", "ctrl"
+/// @param isDown Non-zero for key-down, zero for key-up
+void postEventTapModifierEvent(const char *modifier, int isDown);
+
+#endif /* EVENTTAP_H */

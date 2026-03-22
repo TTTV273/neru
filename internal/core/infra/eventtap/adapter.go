@@ -113,6 +113,13 @@ func (a *Adapter) SetKeyboardLayout(layoutID string) bool {
 	return a.tap.SetKeyboardLayout(layoutID)
 }
 
+// PostModifierEvent simulates a physical modifier key press or release.
+// No lock is needed because the underlying C function is a standalone utility
+// that posts directly to the system without accessing the event tap handle.
+func (a *Adapter) PostModifierEvent(modifier string, isDown bool) {
+	a.tap.PostModifierEvent(modifier, isDown)
+}
+
 // Destroy cleans up the event tap resources.
 func (a *Adapter) Destroy() {
 	a.mu.Lock()

@@ -87,6 +87,16 @@ To use a larger step (e.g. 20px), just change the values:
 "Down"  = "action move_mouse_relative --dx=0 --dy=20"
 ```
 
+## Click, sleep, move
+
+On some apps (e.g. Discord), it requires you to wait for a bit after clicking before moving to consider as a success click. Try this snippet:
+
+```toml
+[recursive_grid.custom_hotkeys]
+# Click, sleep for a bit, and then only reset (that moves the cursor to center in recursive grid mode)
+"Ctrl+J" = ["action left_click", "exec sleep 0.05", "action reset"]
+```
+
 ## Disabling All Built-In Hotkeys
 
 To disable all built-in hotkeys (e.g. when using an external hotkey daemon like skhd), provide an empty `[hotkeys]` section:

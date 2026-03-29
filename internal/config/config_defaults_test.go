@@ -45,7 +45,22 @@ func TestDefaultConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("Grid Defaults", func(t *testing.T) {
+		if got := cfg.Grid.Hotkeys["`"]; len(got) != 1 ||
+			got[0] != "toggle-cursor-follow-selection" {
+			t.Fatalf("Expected Grid hotkey ` to toggle cursor-follow-selection, got %v", got)
+		}
+	})
+
 	t.Run("Recursive Grid Defaults", func(t *testing.T) {
+		if got := cfg.RecursiveGrid.Hotkeys["`"]; len(got) != 1 ||
+			got[0] != "toggle-cursor-follow-selection" {
+			t.Fatalf(
+				"Expected RecursiveGrid hotkey ` to toggle cursor-follow-selection, got %v",
+				got,
+			)
+		}
+
 		if cfg.RecursiveGrid.UI.LabelBackground {
 			t.Error("Expected RecursiveGrid.UI.LabelBackground to be false by default")
 		}

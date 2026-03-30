@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -36,13 +35,13 @@ func isValidModifier(mod string) bool {
 }
 
 type colorField struct {
-	value     string
+	color     Color
 	fieldName string
 }
 
 func validateColors(fields []colorField) error {
 	for _, field := range fields {
-		err := ValidateColor(field.value, field.fieldName)
+		err := field.color.Validate(field.fieldName)
 		if err != nil {
 			return err
 		}
@@ -79,14 +78,10 @@ func (c *Config) ValidateHints() error {
 	}
 
 	err := validateColors([]colorField{
-		{c.Hints.UI.BackgroundColorLight, "hints.ui.background_color_light"},
-		{c.Hints.UI.BackgroundColorDark, "hints.ui.background_color_dark"},
-		{c.Hints.UI.TextColorLight, "hints.ui.text_color_light"},
-		{c.Hints.UI.TextColorDark, "hints.ui.text_color_dark"},
-		{c.Hints.UI.MatchedTextColorLight, "hints.ui.matched_text_color_light"},
-		{c.Hints.UI.MatchedTextColorDark, "hints.ui.matched_text_color_dark"},
-		{c.Hints.UI.BorderColorLight, "hints.ui.border_color_light"},
-		{c.Hints.UI.BorderColorDark, "hints.ui.border_color_dark"},
+		{c.Hints.UI.BackgroundColor, "hints.ui.background_color"},
+		{c.Hints.UI.TextColor, "hints.ui.text_color"},
+		{c.Hints.UI.MatchedTextColor, "hints.ui.matched_text_color"},
+		{c.Hints.UI.BorderColor, "hints.ui.border_color"},
 	})
 	if err != nil {
 		return err
@@ -193,18 +188,12 @@ func (c *Config) ValidateGrid() error {
 	}
 
 	err := validateColors([]colorField{
-		{c.Grid.UI.BackgroundColorLight, "grid.ui.background_color_light"},
-		{c.Grid.UI.BackgroundColorDark, "grid.ui.background_color_dark"},
-		{c.Grid.UI.TextColorLight, "grid.ui.text_color_light"},
-		{c.Grid.UI.TextColorDark, "grid.ui.text_color_dark"},
-		{c.Grid.UI.MatchedTextColorLight, "grid.ui.matched_text_color_light"},
-		{c.Grid.UI.MatchedTextColorDark, "grid.ui.matched_text_color_dark"},
-		{c.Grid.UI.MatchedBackgroundColorLight, "grid.ui.matched_background_color_light"},
-		{c.Grid.UI.MatchedBackgroundColorDark, "grid.ui.matched_background_color_dark"},
-		{c.Grid.UI.MatchedBorderColorLight, "grid.ui.matched_border_color_light"},
-		{c.Grid.UI.MatchedBorderColorDark, "grid.ui.matched_border_color_dark"},
-		{c.Grid.UI.BorderColorLight, "grid.ui.border_color_light"},
-		{c.Grid.UI.BorderColorDark, "grid.ui.border_color_dark"},
+		{c.Grid.UI.BackgroundColor, "grid.ui.background_color"},
+		{c.Grid.UI.TextColor, "grid.ui.text_color"},
+		{c.Grid.UI.MatchedTextColor, "grid.ui.matched_text_color"},
+		{c.Grid.UI.MatchedBackgroundColor, "grid.ui.matched_background_color"},
+		{c.Grid.UI.MatchedBorderColor, "grid.ui.matched_border_color"},
+		{c.Grid.UI.BorderColor, "grid.ui.border_color"},
 	})
 	if err != nil {
 		return err
@@ -235,12 +224,9 @@ func (c *Config) ValidateStickyModifiers() error {
 	}
 
 	return validateColors([]colorField{
-		{c.StickyModifiers.UI.BackgroundColorLight, "sticky_modifiers.ui.background_color_light"},
-		{c.StickyModifiers.UI.BackgroundColorDark, "sticky_modifiers.ui.background_color_dark"},
-		{c.StickyModifiers.UI.TextColorLight, "sticky_modifiers.ui.text_color_light"},
-		{c.StickyModifiers.UI.TextColorDark, "sticky_modifiers.ui.text_color_dark"},
-		{c.StickyModifiers.UI.BorderColorLight, "sticky_modifiers.ui.border_color_light"},
-		{c.StickyModifiers.UI.BorderColorDark, "sticky_modifiers.ui.border_color_dark"},
+		{c.StickyModifiers.UI.BackgroundColor, "sticky_modifiers.ui.background_color"},
+		{c.StickyModifiers.UI.TextColor, "sticky_modifiers.ui.text_color"},
+		{c.StickyModifiers.UI.BorderColor, "sticky_modifiers.ui.border_color"},
 	})
 }
 
@@ -494,18 +480,14 @@ func validateModifierCombo(key, fieldName string) error {
 	return nil
 }
 
-// ValidateColor validates hex color values (#RRGGBB/#AARRGGBB).
+// ValidateColor validates a single hex color value (#RGB/#RRGGBB/#AARRGGBB).
+// It uses the pre-compiled colorRegex from Color.
 func ValidateColor(color, fieldName string) error {
 	if color == "" {
 		return nil
 	}
 
-	matched, err := regexp.MatchString("^#([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6}|[A-Fa-f0-9]{8})$", color)
-	if err != nil {
-		return err
-	}
-
-	if !matched {
+	if !colorRegex.MatchString(color) {
 		return derrors.Newf(
 			derrors.CodeInvalidConfig,
 			"%s has invalid color format: %s",
@@ -578,28 +560,11 @@ func (c *Config) ValidateRecursiveGrid() error {
 	}
 
 	err := validateColors([]colorField{
-		{c.RecursiveGrid.UI.LineColorLight, "recursive_grid.ui.line_color_light"},
-		{c.RecursiveGrid.UI.LineColorDark, "recursive_grid.ui.line_color_dark"},
-		{c.RecursiveGrid.UI.HighlightColorLight, "recursive_grid.ui.highlight_color_light"},
-		{c.RecursiveGrid.UI.HighlightColorDark, "recursive_grid.ui.highlight_color_dark"},
-		{c.RecursiveGrid.UI.TextColorLight, "recursive_grid.ui.text_color_light"},
-		{c.RecursiveGrid.UI.TextColorDark, "recursive_grid.ui.text_color_dark"},
-		{
-			c.RecursiveGrid.UI.LabelBackgroundColorLight,
-			"recursive_grid.ui.label_background_color_light",
-		},
-		{
-			c.RecursiveGrid.UI.LabelBackgroundColorDark,
-			"recursive_grid.ui.label_background_color_dark",
-		},
-		{
-			c.RecursiveGrid.UI.SubKeyPreviewTextColorLight,
-			"recursive_grid.ui.sub_key_preview_text_color_light",
-		},
-		{
-			c.RecursiveGrid.UI.SubKeyPreviewTextColorDark,
-			"recursive_grid.ui.sub_key_preview_text_color_dark",
-		},
+		{c.RecursiveGrid.UI.LineColor, "recursive_grid.ui.line_color"},
+		{c.RecursiveGrid.UI.HighlightColor, "recursive_grid.ui.highlight_color"},
+		{c.RecursiveGrid.UI.TextColor, "recursive_grid.ui.text_color"},
+		{c.RecursiveGrid.UI.LabelBackgroundColor, "recursive_grid.ui.label_background_color"},
+		{c.RecursiveGrid.UI.SubKeyPreviewTextColor, "recursive_grid.ui.sub_key_preview_text_color"},
 	})
 	if err != nil {
 		return err
@@ -626,8 +591,7 @@ func (c *Config) ValidateVirtualPointer() error {
 	}
 
 	err := validateColors([]colorField{
-		{c.VirtualPointer.UI.ColorLight, "virtual_pointer.ui.color_light"},
-		{c.VirtualPointer.UI.ColorDark, "virtual_pointer.ui.color_dark"},
+		{c.VirtualPointer.UI.Color, "virtual_pointer.ui.color"},
 	})
 	if err != nil {
 		return err

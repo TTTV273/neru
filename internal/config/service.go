@@ -131,7 +131,7 @@ func NewService(
 // how to handle validation failures (e.g., show alert and use default config).
 func (s *Service) LoadWithValidation(path string) *LoadResult {
 	configResult := &LoadResult{
-		Config:     DefaultConfig(),
+		Config:     defaultConfigForDecoding(),
 		ConfigPath: path,
 	}
 
@@ -143,6 +143,8 @@ func (s *Service) LoadWithValidation(path string) *LoadResult {
 	if configResult.ConfigPath == "" {
 		s.logger.Info("No config file specified or found, using default configuration")
 
+		configResult.Config = DefaultConfig()
+
 		return configResult
 	}
 
@@ -150,6 +152,8 @@ func (s *Service) LoadWithValidation(path string) *LoadResult {
 
 	_, statErr := os.Stat(configResult.ConfigPath)
 	if os.IsNotExist(statErr) {
+		configResult.Config = DefaultConfig()
+
 		if explicitPath {
 			configResult.ValidationError = core.WrapConfigFailed(statErr, "config file not found")
 		} else {
@@ -184,6 +188,8 @@ func (s *Service) LoadWithValidation(path string) *LoadResult {
 
 		return configResult
 	}
+
+	configResult.Config.ResolveThemeDefaults()
 
 	// Process hotkeys from raw map.
 	// User entries are merged on top of the defaults from DefaultConfig().

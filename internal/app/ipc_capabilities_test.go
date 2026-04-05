@@ -66,12 +66,35 @@ func TestIPCController_StatusIncludesCapabilities(t *testing.T) {
 		t.Fatalf("capabilities type = %T, want map[string]any", statusData["capabilities"])
 	}
 
+	profile, profileOK := statusData["profile"].(map[string]any)
+	if !profileOK {
+		t.Fatalf("profile type = %T, want map[string]any", statusData["profile"])
+	}
+
 	if capabilities["platform"] != "testos" {
 		t.Fatalf("platform = %v, want testos", capabilities["platform"])
 	}
 
 	if capabilities["overlay"] != string(ports.FeatureStatusStub) {
 		t.Fatalf("overlay capability = %v, want stub", capabilities["overlay"])
+	}
+
+	primaryMod, primaryModOK := profile["primary_modifier"].(string)
+	if !primaryModOK || primaryMod == "" {
+		t.Fatalf(
+			"profile.primary_modifier = %v (%T), want non-empty string",
+			profile["primary_modifier"],
+			profile["primary_modifier"],
+		)
+	}
+
+	displayServer, displayServerOK := profile["display_server"].(string)
+	if !displayServerOK || displayServer == "" {
+		t.Fatalf(
+			"profile.display_server = %v (%T), want non-empty string",
+			profile["display_server"],
+			profile["display_server"],
+		)
 	}
 }
 
@@ -126,10 +149,20 @@ func TestIPCController_HealthMarksStubCapabilitiesUnhealthy(t *testing.T) {
 		t.Fatalf("components type = %T, want map[string]string", healthData["components"])
 	}
 
+	profile, profileOK := healthData["profile"].(map[string]any)
+	if !profileOK {
+		t.Fatalf("profile type = %T, want map[string]any", healthData["profile"])
+	}
+
 	if components["capability.process"] != string(ports.FeatureStatusStub) {
 		t.Fatalf(
 			"capability.process = %v, want stub",
 			components["capability.process"],
 		)
+	}
+
+	profileOS, profileOSOK := profile["os"].(string)
+	if !profileOSOK || profileOS == "" {
+		t.Fatalf("profile.os = %v (%T), want non-empty string", profile["os"], profile["os"])
 	}
 }

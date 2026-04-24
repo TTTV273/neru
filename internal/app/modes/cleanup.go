@@ -130,6 +130,11 @@ func (h *Handler) performCommonCleanup() {
 		zap.String("to", "idle"))
 	h.overlayManager.SwitchTo(overlay.ModeIdle)
 
+	if h.inputMethod != nil && h.previousInputSource != "" {
+		_ = h.inputMethod.SwitchToSourceID(h.previousInputSource)
+		h.previousInputSource = ""
+	}
+
 	// If a hotkey refresh was deferred while in an active mode, perform it now
 	if h.appState.HotkeyRefreshPending() {
 		h.appState.SetHotkeyRefreshPending(false)

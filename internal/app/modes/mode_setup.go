@@ -70,12 +70,22 @@ func (h *Handler) SetModeIdle() {
 	}
 
 	h.overlaySwitch(overlay.ModeIdle)
+
+	if h.inputMethod != nil && h.previousInputSource != "" {
+		_ = h.inputMethod.SwitchToSourceID(h.previousInputSource)
+		h.previousInputSource = ""
+	}
 }
 
 // setModeLocked sets the application mode, enables event tap, and switches overlay.
 // Caller must hold h.mu.
 func (h *Handler) setModeLocked(appMode domain.Mode, overlayMode overlay.Mode) {
 	h.setAppModeLocked(appMode)
+
+	if h.inputMethod != nil {
+		h.previousInputSource = h.inputMethod.GetCurrentSourceID()
+		_ = h.inputMethod.SwitchToSourceID("com.apple.keylayout.ABC")
+	}
 
 	if h.enableEventTap != nil {
 		h.enableEventTap()

@@ -12,6 +12,11 @@ func NewSystemPort() (ports.SystemPort, error) {
 	return darwin.NewSystemAdapter(), nil
 }
 
+// NewInputMethodPort returns a macOS InputMethodPort implementation.
+func NewInputMethodPort() (ports.InputMethodPort, error) {
+	return darwin.NewInputMethodAdapter(), nil
+}
+
 // ShowConfigOnboardingAlert displays a native macOS alert for new users without a config file.
 func ShowConfigOnboardingAlert(configPath string) int {
 	return int(darwin.ShowConfigOnboardingAlert(configPath))

@@ -12,6 +12,11 @@ func NewSystemPort() (ports.SystemPort, error) {
 	return linux.NewSystemAdapter(), nil
 }
 
+// NewInputMethodPort returns nil on Linux (not yet supported).
+func NewInputMethodPort() (ports.InputMethodPort, error) {
+	return nil, nil
+}
+
 // ShowConfigOnboardingAlert is a stub on Linux.
 func ShowConfigOnboardingAlert(_ string) int {
 	return ConfigOnboardingDefaults

@@ -109,6 +109,10 @@ type Handler struct {
 	indicatorTicker *time.Ticker
 	indicatorStopCh chan struct{}
 	indicatorDoneCh chan struct{}
+
+	// Input method management: save/restore the active input source around mode sessions.
+	inputMethod          ports.InputMethodPort
+	previousInputSource  string
 }
 
 // NewHandler creates a new mode handler.
@@ -139,6 +143,7 @@ func NewHandler(
 	refreshHotkeys func(),
 	executeHotkeyAction func(key, actionStr string) error,
 	systemPort ports.SystemPort,
+	inputMethod ports.InputMethodPort,
 ) *Handler {
 	// Initialize screen bounds for coordinate conversion.
 	// Use a background context since this runs during startup.
@@ -185,6 +190,7 @@ func NewHandler(
 		executeHotkeyAction:        executeHotkeyAction,
 		themeProvider:              systemPort,
 		system:                     systemPort,
+		inputMethod:                inputMethod,
 	}
 
 	// Initialize mode implementations

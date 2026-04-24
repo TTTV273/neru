@@ -14,6 +14,11 @@ func NewSystemPort() (ports.SystemPort, error) {
 	return nil, fmt.Errorf("%w: %s", ErrUnsupportedPlatform, runtime.GOOS)
 }
 
+// NewInputMethodPort returns nil on unsupported platforms.
+func NewInputMethodPort() (ports.InputMethodPort, error) {
+	return nil, nil
+}
+
 // ShowConfigOnboardingAlert is a stub on non-darwin platforms.
 func ShowConfigOnboardingAlert(_ string) int {
 	return ConfigOnboardingDefaults

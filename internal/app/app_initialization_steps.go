@@ -39,6 +39,16 @@ func initializeInfrastructure(app *App) error {
 		app.systemPort = systemPort
 	}
 
+	// Initialize input method port if not provided (nil on non-darwin platforms)
+	if app.inputMethodPort == nil {
+		inputMethodPort, err := platform.NewInputMethodPort()
+		if err != nil {
+			return err
+		}
+
+		app.inputMethodPort = inputMethodPort
+	}
+
 	// Initialize overlay manager if not provided
 	if app.overlayManager == nil {
 		app.overlayManager = initializeOverlayManager(logger)
@@ -345,6 +355,7 @@ func initializeModeHandler(app *App) {
 		deps.callbacks.refreshHotkeys,
 		deps.callbacks.executeHotkeyAction,
 		app.systemPort,
+		app.inputMethodPort,
 	)
 }
 

@@ -12,6 +12,11 @@ package systray
 import "C"
 
 import (
+	"bytes"
+	"image"
+	"image/draw"
+	"image/png"
+	"runtime"
 	"sync"
 	"unsafe"
 )
@@ -105,20 +110,37 @@ func SetTooltip(tooltip string) {
 
 // SetIcon sets the icon of the system tray item.
 func SetIcon(icon []byte) {
-	if len(icon) == 0 {
-		return
-	}
-	cIcon := (*C.char)(unsafe.Pointer(&icon[0]))
-	C.setIcon(cIcon, C.int(len(icon)), C.bool(false))
+	setIconFromPNG(icon, false)
 }
 
 // SetTemplateIcon sets the icon of the system tray item as a template icon (monochrome).
-func SetTemplateIcon(icon []byte, template bool) {
+func SetTemplateIcon(icon []byte, isTemplate bool) {
+	setIconFromPNG(icon, isTemplate)
+}
+
+// setIconFromPNG decodes a PNG using Go's standard library and passes raw RGBA
+// pixels to C to build the NSImage via NSBitmapImageRep. This bypasses
+// ImageIO's PNG plugin, which crashes in certain process contexts on macOS
+// (e.g. when the process is launched from an interactive terminal).
+func setIconFromPNG(icon []byte, isTemplate bool) {
 	if len(icon) == 0 {
 		return
 	}
-	cIcon := (*C.char)(unsafe.Pointer(&icon[0]))
-	C.setIcon(cIcon, C.int(len(icon)), C.bool(template))
+	img, err := png.Decode(bytes.NewReader(icon))
+	if err != nil {
+		return
+	}
+	bounds := img.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	if w == 0 || h == 0 {
+		return
+	}
+	rgba := image.NewRGBA(bounds)
+	draw.Draw(rgba, bounds, img, bounds.Min, draw.Src)
+
+	cPixels := (*C.uchar)(unsafe.Pointer(&rgba.Pix[0]))
+	C.setIconRaw(cPixels, C.int(w), C.int(h), C.bool(isTemplate))
+	runtime.KeepAlive(rgba)
 }
 
 // AddSeparator adds a separator to the main menu.

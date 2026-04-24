@@ -9,6 +9,7 @@ void nativeLoopHeadless(void);
 void quit(void);
 
 void setIcon(const char *iconBytes, int length, bool isTemplate);
+void setIconRaw(const unsigned char *pixels, int width, int height, bool isTemplate);
 void setTitle(const char *title);
 void setTooltip(const char *tooltip);
 

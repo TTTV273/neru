@@ -111,6 +111,8 @@ void quit(void) {
 
 #pragma mark - Status Item Functions
 
+void runOnMainThread(void (^block)(void));
+
 void setIcon(const char *iconBytes, int length, bool isTemplate) {
 	// Copy the icon bytes before dispatching so the caller can free
 	// the original buffer immediately after this function returns.
@@ -125,6 +127,40 @@ void setIcon(const char *iconBytes, int length, bool isTemplate) {
 		[image setSize:NSMakeSize(22, 22)];
 		[image setTemplate:isTemplate];
 
+		if (appDelegate && appDelegate.statusItem) {
+			appDelegate.statusItem.button.image = image;
+		}
+	});
+}
+
+void setIconRaw(const unsigned char *pixels, int width, int height, bool isTemplate) {
+	// Build NSBitmapImageRep directly from raw RGBA pixels decoded in Go.
+	// This completely bypasses ImageIO's PNG plugin, which crashes in certain
+	// process contexts on macOS (e.g. when launched from an interactive terminal).
+	NSBitmapImageRep *rep = [[NSBitmapImageRep alloc]
+		initWithBitmapDataPlanes:NULL
+					  pixelsWide:width
+					  pixelsHigh:height
+				   bitsPerSample:8
+				 samplesPerPixel:4
+					    hasAlpha:YES
+					    isPlanar:NO
+				  colorSpaceName:NSDeviceRGBColorSpace
+					 bytesPerRow:width * 4
+					bitsPerPixel:32];
+
+	if (!rep || ![rep bitmapData]) {
+		return;
+	}
+
+	// Copy pixels synchronously; after this `pixels` (Go heap pointer) is no longer needed.
+	memcpy([rep bitmapData], pixels, (size_t)(height * width * 4));
+
+	NSImage *image = [[NSImage alloc] initWithSize:NSMakeSize(22, 22)];
+	[image addRepresentation:rep];
+	[image setTemplate:isTemplate];
+
+	runOnMainThread(^{
 		if (appDelegate && appDelegate.statusItem) {
 			appDelegate.statusItem.button.image = image;
 		}

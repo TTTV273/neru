@@ -47,7 +47,11 @@ func (h *Handler) activateGridModeWithAction(
 		// The overlay is cleared unconditionally below.
 		h.stopIndicatorPolling()
 	} else {
+		savedInputSource := h.previousInputSource
 		h.exitModeLocked()
+		if savedInputSource != "" {
+			h.previousInputSource = savedInputSource
+		}
 	}
 
 	// Clear any previous overlay content (e.g., scroll highlights) before drawing grid.

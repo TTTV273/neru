@@ -83,7 +83,9 @@ func (h *Handler) setModeLocked(appMode domain.Mode, overlayMode overlay.Mode) {
 	h.setAppModeLocked(appMode)
 
 	if h.inputMethod != nil {
-		h.previousInputSource = h.inputMethod.GetCurrentSourceID()
+		if h.previousInputSource == "" {
+			h.previousInputSource = h.inputMethod.GetCurrentSourceID()
+		}
 		_ = h.inputMethod.SwitchToSourceID("com.apple.keylayout.ABC")
 	}
 

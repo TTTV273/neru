@@ -14,7 +14,11 @@ func (h *Handler) StartInteractiveScroll() {
 	// exitModeLocked returns early when already idle without running cleanup.
 	h.scroll.Context.Reset()
 
+	savedInputSource := h.previousInputSource
 	h.exitModeLocked()
+	if savedInputSource != "" {
+		h.previousInputSource = savedInputSource
+	}
 
 	h.scroll.Context.SetIsActive(true)
 

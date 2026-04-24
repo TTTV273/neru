@@ -119,7 +119,17 @@ func (h *Handler) activateHintModeInternal(
 			h.overlayManager.Clear()
 			h.stopIndicatorPolling()
 		} else {
+			// Preserve previousInputSource across mode transitions.
+			// exitModeLocked → performCommonCleanup clears previousInputSource after
+			// queuing an async input-source restore. If we let setModeLocked read
+			// GetCurrentSourceID() immediately after, the async switch hasn't run yet
+			// and it reads the wrong (current nav-mode) source. By saving and
+			// re-applying the value, setModeLocked skips the stale read entirely.
+			savedInputSource := h.previousInputSource
 			h.exitModeLocked()
+			if savedInputSource != "" {
+				h.previousInputSource = savedInputSource
+			}
 		}
 	}
 

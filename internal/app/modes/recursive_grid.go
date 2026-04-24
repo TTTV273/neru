@@ -48,7 +48,11 @@ func (h *Handler) activateRecursiveGridModeWithAction(
 		// The overlay is cleared unconditionally below.
 		h.stopIndicatorPolling()
 	} else {
+		savedInputSource := h.previousInputSource
 		h.exitModeLocked()
+		if savedInputSource != "" {
+			h.previousInputSource = savedInputSource
+		}
 	}
 
 	h.overlayManager.Clear()

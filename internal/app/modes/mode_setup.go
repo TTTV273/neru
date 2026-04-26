@@ -85,7 +85,9 @@ func (h *Handler) setModeLocked(appMode domain.Mode, overlayMode overlay.Mode) {
 	if h.inputMethod != nil {
 		if h.previousInputSource == "" {
 			h.previousInputSource = h.inputMethod.GetCurrentSourceID()
+			// h.logger.Info("[LEARN] Đã lưu bộ gõ gốc", zap.String("source", h.previousInputSource))
 		}
+		// h.logger.Info("Đang chuyển bộ gõ sang ABC")
 		_ = h.inputMethod.SwitchToSourceID("com.apple.keylayout.ABC")
 	}
 

@@ -339,3 +339,279 @@ mode_setup.go  →  InputMethodPort  →  darwin adapter  →  Carbon API (Objec
 
 🤔 **Câu hỏi Socratic cho anh:**
 Theo đường ống 3 lớp ở trên, giả sử bây giờ anh muốn làm thêm bản Neru cho Windows (chuyển bộ gõ bằng API của Windows), thì theo anh, chúng ta có cần phải sửa lại dù chỉ một dòng code nào trong file `mode_setup.go` không? Tại sao?
+
+# GEMINI 04
+
+🥷 Tuyệt vời anh Vũ! Claude đã tạo ra một bộ khung hoàn hảo cho phần Adapter trên macOS. Nhìn vào 4 file này, anh sẽ thấy rõ nhất cách mà Golang tương tác với các hệ điều hành thông qua Cgo (C-Go).
+
+Để em giải thích từng file cho anh theo thứ tự của "đường ống" (từ Go đi xuống macOS) nhé:
+
+### 1. `ports/input_method.go` (Bản Hợp Đồng)
+```go
+type InputMethodPort interface {
+	GetCurrentSourceID() string
+	SwitchToSourceID(id string) error
+}
+```
+*   **Giải thích:** Đây là file thuần Go, nằm ở Core (trung tâm). Nó định nghĩa một "bản hợp đồng" yêu cầu phải có 2 kỹ năng: lấy ID bộ gõ và đổi bộ gõ.
+*   **Vai trò:** Giúp Core không cần biết macOS là gì, cứ ai ký hợp đồng này (Adapter) thì Core sẽ xài.
+
+---
+
+### 2. `darwin/inputmethod.go` (Người Ký Hợp Đồng - CGO Bridge)
+```go
+//go:build darwin
+...
+/*
+#include "inputmethod.h"
+#include <stdlib.h>
+*/
+import "C"
+...
+var _ ports.InputMethodPort = (*InputMethodAdapter)(nil)
+```
+*   **Giải thích:**
+    *   `//go:build darwin`: Lệnh này nói với compiler rằng file này CHỈ được biên dịch nếu đang chạy trên Mac (Darwin).
+    *   `import "C"`: Đây là Cgo. Nó cho phép Go "nói chuyện" được với code C. Khối comment ngay phía trên nó (`#include...`) chính là code C thật được nhúng vào.
+    *   `var _ ports.InputMethodPort = ...`: Đây là một mẹo nhỏ (compile-time check) rất hay dùng trong Go. Nó ép trình biên dịch kiểm tra xem cái `InputMethodAdapter` này đã code đủ 2 hàm trong hợp đồng (`GetCurrentSourceID` và `SwitchToSourceID`) chưa. Nếu thiếu, code sẽ báo lỗi ngay khi gõ chứ không đợi đến lúc chạy.
+*   **Vai trò:** Nó là cầu nối. Khi Core gọi hàm của Go, file này sẽ dịch lệnh đó sang C và gọi xuống `C.getInputSourceID()`.
+
+---
+
+### 3. `darwin/inputmethod.h` (Biển báo C)
+```c
+const char* getInputSourceID(void);
+int switchInputSourceByID(const char* sourceID);
+```
+*   **Giải thích:** File này gọi là file Header (`.h`) của ngôn ngữ C. Nó không chứa logic, nó chỉ "đăng bảng thông báo": *"Ê, tui có 2 hàm này nhé, hàm thứ nhất trả về chuỗi chữ (char*), hàm thứ hai nhận chuỗi chữ và trả về số nguyên (int)."*
+*   **Vai trò:** Cgo trong file Go không thể "nhìn thẳng" vào file Objective-C (`.m`), nó chỉ hiểu code C. Nên file `.h` này làm nhiệm vụ mô tả các hàm C để file Go biết đường mà gọi.
+
+---
+
+### 4. `darwin/inputmethod_darwin.m` (Công nhân gánh tạ - Objective-C)
+```objc
+#import <Carbon/Carbon.h>
+...
+const char* getInputSourceID(void) { ... }
+int switchInputSourceByID(const char* sourceID) { ... }
+```
+*   **Giải thích:** Đây là file Objective-C, nơi làm việc dơ bẩn nhất. Nó "import" framework `Carbon` của Apple vào.
+    *   Hàm `getInputSourceID`: Nó gọi `TISCopyCurrentKeyboardInputSource` của Apple để lấy thông tin bộ gõ, lôi cái ID ra (ví dụ: `com.apple.keylayout.ABC`), biến đổi chuỗi của Apple (CFString) thành chuỗi cơ bản của C (char*) để gửi ngược lên cho Go. Cực kỳ cồng kềnh vì phải tự dọn dẹp bộ nhớ (malloc/free/CFRelease).
+    *   Hàm `switchInputSourceByID`: Nó xin Apple danh sách tất cả bộ gõ đang cài (`TISCreateInputSourceList`), chạy vòng lặp tìm cái bộ gõ nào có ID trùng với ID mà Go truyền xuống. Nếu thấy, nó gọi lệnh thiêng liêng `TISSelectInputSource` để kích hoạt bộ gõ đó.
+*   **Vai trò:** Thực thi mệnh lệnh trực tiếp trên hệ điều hành.
+
+---
+
+**Tóm lại đường ống này chạy như sau:**
+**Go (Core)** $\rightarrow$ **Cgo (Go file)** $\rightarrow$ **C (Header .h)** $\rightarrow$ **Objective-C (.m file) (Carbon API)**.
+
+Khi dữ liệu trả về, nó đi ngược lại từ Objective-C lên Cgo, rồi file Cgo sẽ giải phóng bộ nhớ C (bằng hàm `defer C.free...`) và biến chuỗi C thành chuỗi Go (`C.GoString`) để trả về cho phần Core gọn gàng sạch sẽ.
+
+Anh Vũ đã nắm rõ bức tranh toàn cảnh của 4 file này chưa ạ? Bước tiếp theo (Bước 4 & 5), ta sẽ gắn cái "đường ống" này vào trái tim của Neru (`mode_setup.go`) nhé. Anh muốn tự sửa hay muốn em làm ạ?
+
+# CLAUDE CODE 04
+
+## Bug phát sinh sau khi thêm tính năng
+
+Feature vừa merge xong, test cơ bản qua — activate Neru từ JOKey, bộ gõ chuyển sang ABC, deactivate, JOKey quay về. Nhưng anh Vũ phát hiện một case lạ:
+
+> *"Khi đang ở bộ gõ JOKey, activate Neru vào recursive-grid, rồi **chưa deactivate** mà dùng phím tắt chuyển sang grid hoặc hints — thấy bộ gõ chuyển rất nhanh nhưng vẫn ở ABC. Rồi deactivate Neru, JOKey không quay về. Nó dính ở ABC luôn."*
+
+Đây là một **mode-to-mode transition bug** — case mà integration test không cover, vì test thường chỉ kiểm tra activate → deactivate theo cặp thẳng.
+
+---
+
+## Phân tích ban đầu (/think)
+
+Nhìn vào flow khi chuyển từ recursive-grid sang grid:
+
+```
+activateGridModeWithAction()
+    └─ h.exitModeLocked()          ← dọn dẹp recursive-grid
+        └─ performCommonCleanup()
+            ├─ SwitchToSourceID(previousInputSource)  ← restore JOKey
+            └─ h.previousInputSource = ""             ← xóa trắng
+    └─ h.setModeLocked(ModeGrid, ...)
+        ├─ h.previousInputSource = GetCurrentSourceID()  ← đọc lại OS ???
+        └─ SwitchToSourceID("ABC")
+```
+
+Nhìn vào `setModeLocked` (file `mode_setup.go`):
+
+```go
+func (h *Handler) setModeLocked(appMode domain.Mode, overlayMode overlay.Mode) {
+    h.setAppModeLocked(appMode)
+    if h.inputMethod != nil {
+        // BUG ở đây: không có guard, luôn ghi đè previousInputSource
+        h.previousInputSource = h.inputMethod.GetCurrentSourceID()
+        _ = h.inputMethod.SwitchToSourceID("com.apple.keylayout.ABC")
+    }
+    ...
+}
+```
+
+Khi đang ở mode A, `previousInputSource` đang giữ "JOKey". Khi kích hoạt mode B, code gọi `exitModeLocked()` để dọn A, rồi gọi `setModeLocked()` cho B. Nhưng `setModeLocked` **luôn ghi đè** `previousInputSource` bằng giá trị đọc từ OS — lúc này OS đang ở ABC — nên "JOKey" bị mất.
+
+**Hypothesis (lần 1):** Thêm guard `if h.previousInputSource == ""` vào `setModeLocked` để chỉ lưu lần đầu:
+
+```go
+if h.previousInputSource == "" {
+    h.previousInputSource = h.inputMethod.GetCurrentSourceID()
+}
+```
+
+Logic: nếu `previousInputSource` đã có giá trị (đang trong mode nào đó), không cần lưu lại. Chỉ lưu khi thực sự "từ idle bước vào mode đầu tiên".
+
+---
+
+## Fix lần 1 — và test thấy vẫn sai
+
+Sau khi thêm guard, test lại: bug vẫn còn. Anh Vũ xác nhận: *"Vẫn không được em, anh dùng các phím tắt chuyển qua giữa các chế độ là JOKey sẽ bị mất."*
+
+Rõ ràng hypothesis lần 1 chưa đủ. Cái guard `== ""` đúng về ý tưởng nhưng thiếu một mắt xích. Phải đào sâu hơn.
+
+# CLAUDE CODE 05
+
+## Hunt: đào sâu vào timing của dispatch_async
+
+Để hiểu tại sao fix lần 1 không đủ, phải đọc kỹ lại từng bước trong `performCommonCleanup`:
+
+```go
+// cleanup.go
+func (h *Handler) performCommonCleanup() {
+    ...
+    if h.inputMethod != nil && h.previousInputSource != "" {
+        _ = h.inputMethod.SwitchToSourceID(h.previousInputSource)  // (1)
+        h.previousInputSource = ""                                   // (2)
+    }
+    ...
+}
+```
+
+Nhìn qua thì có vẻ ổn: bước (1) restore JOKey, bước (2) xóa `previousInputSource`. Sau đó `setModeLocked` chạy, thấy `previousInputSource == ""`, gọi `GetCurrentSourceID()` để lưu... đợi — **OS đang ở bộ gõ nào lúc đó?**
+
+Kéo xuống xem implementation của `SwitchToSourceID` trong file Objective-C (`inputmethod_darwin.m`):
+
+```objc
+int switchInputSourceByID(const char* sourceID) {
+    ...
+    dispatch_async(dispatch_get_main_queue(), ^{
+        TISSelectInputSource(src);   // ← chạy ASYNC trên main thread
+        CFRelease(src);
+    });
+    return 0;
+}
+```
+
+**Đây rồi.** `dispatch_async` là **bất đồng bộ**. Nó không chờ `TISSelectInputSource` chạy xong — nó chỉ *đẩy lệnh vào hàng đợi* của main thread rồi trả về ngay lập tức.
+
+---
+
+## Toàn bộ race condition, từng bước một
+
+```
+Thread Go (goroutine):                  Main thread macOS:
+─────────────────────────────────────   ──────────────────────────────
+performCommonCleanup()
+  SwitchToSourceID("JOKey")
+    dispatch_async(^{ TISSelect... })   ← đẩy vào queue, CHƯA chạy
+    return 0                            ← Go thread tiếp tục ngay
+  previousInputSource = ""
+  (mode → idle)
+
+setModeLocked(ModeGrid)
+  previousInputSource == "" → true
+  GetCurrentSourceID()
+    → đọc OS: vẫn đang là "ABC"  ←     ← lệnh TISSelect vẫn nằm trong queue
+  previousInputSource = "ABC"  ← ĐÂY LÀ LỖI
+  SwitchToSourceID("ABC")             
+                                        TISSelectInputSource("JOKey")  ← quá muộn
+                                        (OS chuyển sang JOKey một chớp rồi ABC ghi đè)
+```
+
+Kết quả: khi deactivate Neru, `previousInputSource = "ABC"`, nên restore về "ABC" thay vì "JOKey".
+
+**Root cause một câu:** `performCommonCleanup` xóa `previousInputSource` trước khi lệnh switch OS thực sự thực thi (do `dispatch_async`), khiến `setModeLocked` đọc giá trị bộ gõ sai từ OS và lưu "ABC" vào `previousInputSource`.
+
+---
+
+## Fix đúng: savedInputSource pattern
+
+Guard `== ""` trong `setModeLocked` là cần thiết nhưng chưa đủ. Vấn đề là `previousInputSource` bị xóa về `""` *trước khi* `setModeLocked` được gọi, nên guard không có tác dụng — `previousInputSource` đã là `""` rồi, guard sẽ trigger đọc OS, và OS lúc đó vẫn là ABC.
+
+Giải pháp: **đừng để `previousInputSource` mất đi trong quá trình transition**. Lưu nó lại trước khi gọi `exitModeLocked()`, rồi trả lại sau:
+
+```go
+// Trong activateGridModeWithAction, activateHintModeInternal,
+// activateRecursiveGridModeWithAction, StartInteractiveScroll
+// — ở nhánh !isRefresh (chuyển từ mode khác sang)
+
+savedInputSource := h.previousInputSource   // lưu "JOKey" trước
+h.exitModeLocked()                          // xóa previousInputSource, queue async restore
+if savedInputSource != "" {
+    h.previousInputSource = savedInputSource // trả lại "JOKey"
+}
+// → setModeLocked thấy previousInputSource != "" → guard bỏ qua GetCurrentSourceID()
+// → "JOKey" được giữ nguyên đến lần deactivate thật sự
+```
+
+Với pattern này, `setModeLocked` chỉ gọi `GetCurrentSourceID()` khi thật sự cần — khi đi từ idle vào mode lần đầu. Còn khi chuyển mode-to-mode, `previousInputSource` đã có giá trị, guard bỏ qua hoàn toàn, không bao giờ đọc giá trị stale từ OS.
+
+---
+
+## Áp dụng vào tất cả 4 điểm activation
+
+Pattern này phải áp dụng nhất quán ở mọi nơi gọi `exitModeLocked()` trong quá trình activation (không phải lúc exit thật sự):
+
+| File | Hàm | Nhánh |
+|------|-----|-------|
+| `modes/hints.go` | `activateHintModeInternal` | `!isRefresh && !preserveActionMode` |
+| `modes/grid.go` | `activateGridModeWithAction` | `!isRefresh` |
+| `modes/recursive_grid.go` | `activateRecursiveGridModeWithAction` | `!isRefresh` |
+| `modes/scroll.go` | `StartInteractiveScroll` | trước `exitModeLocked()` |
+
+Ví dụ trong `hints.go` (có comment giải thích lý do):
+
+```go
+} else {
+    // Preserve previousInputSource across mode transitions.
+    // exitModeLocked → performCommonCleanup clears previousInputSource after
+    // queuing an async input-source restore. If we let setModeLocked read
+    // GetCurrentSourceID() immediately after, the async switch hasn't run yet
+    // and it reads the wrong (current nav-mode) source. By saving and
+    // re-applying the value, setModeLocked skips the stale read entirely.
+    savedInputSource := h.previousInputSource
+    h.exitModeLocked()
+    if savedInputSource != "" {
+        h.previousInputSource = savedInputSource
+    }
+}
+```
+
+---
+
+## Bài học rút ra
+
+**1. dispatch_async không phải là "làm xong rồi trả về"**
+
+Khi một hàm Go gọi xuống Objective-C và implementation dùng `dispatch_async`, hàm Go nhận được `return 0` *trước khi* side effect thực sự xảy ra. Bất kỳ code Go nào đọc lại trạng thái OS ngay sau đó đều có thể nhận giá trị cũ. Đây là một **async timing hazard** cực kỳ phổ biến khi bridge giữa Go và Objective-C.
+
+**2. Không bao giờ đọc lại state từ OS ngay sau khi ra lệnh thay đổi state đó**
+
+Thay vì đọc lại (`GetCurrentSourceID()`), hãy **nhớ giá trị cần thiết trước khi thay đổi**. Pattern `savedInputSource` chính xác là nguyên tắc này: lưu cái gì cần giữ *trước* khi code cleanup chạy, đừng cố lấy lại từ OS *sau*.
+
+**3. isRefresh vs mode-to-mode transition là hai case hoàn toàn khác nhau**
+
+- `isRefresh = true`: cùng mode tái kích hoạt (ví dụ: `--repeat`). Không cần `exitModeLocked()` đầy đủ — mode, event tap đã đúng trạng thái.
+- `isRefresh = false` + đang trong mode khác: đây mới là mode-to-mode transition, phải dùng savedInputSource pattern.
+- `isRefresh = false` + đang idle: activation lần đầu từ idle, `previousInputSource == ""`, `setModeLocked` đọc OS bình thường.
+
+Ba case này trông giống nhau nhưng cần xử lý khác nhau. Bug xuất hiện vì case giữa bị gộp nhầm vào case cuối.
+
+**4. Test integration thường bỏ sót case chuyển mode không qua idle**
+
+Test thông thường kiểm tra: idle → mode A → idle. Bug này chỉ xuất hiện ở: idle → mode A → mode B → idle. Đây là một lời nhắc nhở để viết test cho các *đường chuyển đổi* (transition paths), không chỉ các *trạng thái đầu-cuối* (states).
+
+---
+
+**Commit:** `20fd607` — `fix: preserve input source across mode-to-mode transitions`

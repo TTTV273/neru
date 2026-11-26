@@ -1272,7 +1272,10 @@ type simHarness struct {
 	// clipboard records what copy_text wrote.
 	clipboard *mocks.MockClipboardPort
 	keyFeed   *mocks.MockKeyFeedPort
-	desktop   *simDesktop
+	// inputSource is the fixture desktop's keyboard input source. It starts on
+	// simUserInputSource, a Telex input method, the way a Vietnamese user's does.
+	inputSource *mocks.MockInputSourcePort
+	desktop     *simDesktop
 	// system is the platform system port, for a journey that changes what
 	// the platform answers, such as a screen capture permission not granted.
 	system *mocks.MockSystemPort
@@ -1624,6 +1627,7 @@ func buildSimHarness(
 
 	clipboard := &mocks.MockClipboardPort{}
 	keyFeed := &mocks.MockKeyFeedPort{}
+	inputSource := mocks.NewMockInputSourcePort(simUserInputSource)
 
 	application, err := app.New(
 		app.WithConfig(cfg),
@@ -1642,6 +1646,7 @@ func buildSimHarness(
 		app.WithVisionPort(vision),
 		app.WithClipboard(clipboard),
 		app.WithKeyFeed(keyFeed),
+		app.WithInputSource(inputSource),
 	)
 	if err != nil {
 		tb.Fatalf("app.New failed: %v", err)
@@ -1661,6 +1666,7 @@ func buildSimHarness(
 		tap:           tap,
 		clipboard:     clipboard,
 		keyFeed:       keyFeed,
+		inputSource:   inputSource,
 		watcher:       watcher,
 		desktop:       desktop,
 		screenCapture: screenCapture,

@@ -222,6 +222,11 @@ type handlerState struct {
 	textInput                  ports.TextInputPort
 	hintSearchTextInputActive  bool
 	hintSearchEventTapDisabled bool
+
+	// inputSource switches to a Latin layout while a mode is open, and
+	// savedInputSource is the user's own, to give back at idle (input_source.go).
+	inputSource      ports.InputSourcePort
+	savedInputSource string
 	// hintSearchSession counts text-input sessions. A callback a session
 	// queued before it stopped compares it under h.mu and does nothing, so it
 	// cannot reach the next session.
@@ -332,6 +337,9 @@ type HandlerDeps struct {
 	Vision ports.VisionPort
 	// KeyFeed types into the focused app for vim mode.
 	KeyFeed ports.KeyFeedPort
+	// InputSource switches to a Latin layout while a mode is open. Nil leaves
+	// the input source alone.
+	InputSource ports.InputSourcePort
 
 	// Motion is the handler's namespace in the held-key glide controller.
 	Motion *heldmotion.Group
@@ -394,6 +402,7 @@ func NewHandler(deps HandlerDeps) *Handler {
 		keyFeed:                deps.KeyFeed,
 		shutdown:               deps.Shutdown,
 		textInput:              deps.TextInput,
+		inputSource:            deps.InputSource,
 		motion:                 deps.Motion,
 		system:                 deps.System,
 		events:                 deps.Events,

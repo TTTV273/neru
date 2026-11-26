@@ -22,6 +22,13 @@ func (h *handlerState) setAppMode(mode domain.Mode) {
 	h.modeSession++
 	h.appState.SetMode(mode)
 
+	// The idle between two modes of a transition keeps the navigation input
+	// source up. Only a real return to idle gives the user's back, and an
+	// abandoned transition does it from releaseKeyboardIfNoModeEntered.
+	if mode != domain.ModeIdle || !h.switchPending {
+		h.syncInputSource(mode)
+	}
+
 	// A mode opening starts a new selection, so copy_text forgets the last
 	// one. Returning to idle keeps it, for a step that runs after the exit.
 	if mode != domain.ModeIdle {

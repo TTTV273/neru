@@ -183,6 +183,16 @@ func WithKeyFeed(keyFeed ports.KeyFeedPort) Option {
 	}
 }
 
+// WithInputSource sets the port modes switch the keyboard input source through.
+// Note: inputSource can be nil, will be initialized during app startup if not provided.
+func WithInputSource(inputSource ports.InputSourcePort) Option {
+	return func(a *App) error {
+		a.inputSource = inputSource
+
+		return nil
+	}
+}
+
 // WithSystemPort sets the system port implementation.
 // Note: systemPort can be nil, will be initialized during app startup if not provided.
 func WithSystemPort(systemPort ports.SystemPort) Option {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/y3owk1n/neru/internal/adapter/clipboard"
 	eventtapadapter "github.com/y3owk1n/neru/internal/adapter/eventtap"
+	"github.com/y3owk1n/neru/internal/adapter/inputsource"
 	ipcadapter "github.com/y3owk1n/neru/internal/adapter/ipc"
 	"github.com/y3owk1n/neru/internal/adapter/keyfeed"
 	"github.com/y3owk1n/neru/internal/adapter/mouse"
@@ -67,6 +68,10 @@ func initializeInfrastructure(app *App) error {
 
 	if app.keyFeed == nil {
 		app.keyFeed = keyfeed.NewAdapter(logger)
+	}
+
+	if app.inputSource == nil {
+		app.inputSource = inputsource.NewAdapter()
 	}
 
 	if app.mouse == nil {
@@ -387,6 +392,7 @@ func initializeModeHandler(app *App) {
 		Clipboard:              app.clipboard,
 		Vision:                 app.vision,
 		KeyFeed:                app.keyFeed,
+		InputSource:            app.inputSource,
 		Motion:                 app.motion.Group("modes"),
 		Events:                 app.events,
 	})

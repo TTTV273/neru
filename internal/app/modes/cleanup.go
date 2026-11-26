@@ -141,6 +141,12 @@ func (h *handlerState) releaseKeyboardIfNoModeEntered() {
 		h.publishSwitch(state.ModeExitReasonCancelled)
 	}
 
+	// The transition skipped the restore on its way through idle, so an
+	// abandoned one hands the input source back here.
+	if h.appState.CurrentMode() == domain.ModeIdle {
+		h.syncInputSource(domain.ModeIdle)
+	}
+
 	if !h.eventTapEnabled() || h.appState.CurrentMode() != domain.ModeIdle {
 		return
 	}

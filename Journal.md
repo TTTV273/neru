@@ -1,3 +1,5 @@
+> Ghi chú: các đường dẫn dạng `v1.31/internal/...` trong nhật ký này là cấu trúc cũ (trước khi sync lên upstream v1.63.0), xem nhánh `archive/v1.31-custom`.
+
 # CLAUDE CODE 01
 Tốt. Em đã đọc xong codebase. Đây là **Lightweight Mode** — bài toán đã rõ, chỉ cần xác định đúng điểm móc và cách triển khai đúng kiến trúc.
 
@@ -24,7 +26,7 @@ Hai hàm này là **single choke point** — không cần hook vào từng mode 
 
 Theo đúng kiến trúc Hexagonal của Neru, thứ tự sẽ là:
 
-### 1. Port (interface) — `internal/core/ports/input_method.go` *(mới)*
+### 1. Port (interface) — `v1.31/internal/core/ports/input_method.go` *(mới)*
 ```go
 type InputMethodPort interface {
     GetCurrentSourceID() string
@@ -33,10 +35,10 @@ type InputMethodPort interface {
 ```
 *Tại sao?* Hexagonal Architecture yêu cầu mọi dependency vào OS phải qua interface. Code Go thuần không được "biết" về Carbon API.
 
-### 2. Adapter Objective-C — `internal/core/infra/platform/darwin/input_method_darwin.m` *(mới)*
+### 2. Adapter Objective-C — `v1.31/internal/core/infra/platform/darwin/input_method_darwin.m` *(mới)*
 Dùng Carbon framework: `TISCopyCurrentKeyboardInputSource()` + `TISSelectInputSource()`.
 
-### 3. CGO bridge — `internal/core/infra/platform/darwin/input_method_darwin.go` *(mới, `//go:build darwin`)*
+### 3. CGO bridge — `v1.31/internal/core/infra/platform/darwin/input_method_darwin.go` *(mới, `//go:build darwin`)*
 Wrap C functions sang Go, implement `InputMethodPort`.
 
 ### 4. Handler — `internal/app/modes/handler.go`
@@ -50,7 +52,7 @@ previousInputSource  string
 - `setModeLocked()` (line 77): lưu source hiện tại → `previousInputSource`, rồi switch sang ABC
 - `SetModeIdle()` (line 62): restore `previousInputSource`
 
-### 6. Wiring — `internal/app/app_initialization.go`
+### 6. Wiring — `v1.31/internal/app/app_initialization.go`
 Inject `InputMethodAdapter` vào `Handler` khi khởi tạo.
 
 ---
@@ -84,8 +86,8 @@ Anh thấy tại sao em chọn `setModeLocked()` thay vì hook vào từng `Acti
 # GEMINI 01
 🥷 Để làm được điều này chuẩn theo kiến trúc Hexagonal của dự án, chúng ta sẽ cần làm 3 bước chính. Anh xem qua luồng này xem có hợp lý không nhé:
 
-1. **Định nghĩa Port (Domain/Ports):** Ta sẽ tạo một interface (ví dụ: `InputSourcePort`) trong thư mục `internal/core/ports/`. Interface này sẽ có các hàm như `GetInputSource() string` và `SetInputSource(id string) error`. Việc này giúp logic cốt lõi không bị trói buộc vào macOS.
-2. **Viết Adapter (Infra/Platform):** Tại `internal/core/infra/platform/darwin/`, ta sẽ viết file Go dùng Cgo để gọi xuống API của macOS (như `TISCopyCurrentKeyboardInputSource` và `TISSelectInputSource` trong framework Carbon) để thực thi hai hàm trên. (Với Linux/Windows ta chỉ cần viết file stub rỗng để không lỗi build).
+1. **Định nghĩa Port (Domain/Ports):** Ta sẽ tạo một interface (ví dụ: `InputSourcePort`) trong thư mục `v1.31/internal/core/ports/`. Interface này sẽ có các hàm như `GetInputSource() string` và `SetInputSource(id string) error`. Việc này giúp logic cốt lõi không bị trói buộc vào macOS.
+2. **Viết Adapter (Infra/Platform):** Tại `v1.31/internal/core/infra/platform/darwin/`, ta sẽ viết file Go dùng Cgo để gọi xuống API của macOS (như `TISCopyCurrentKeyboardInputSource` và `TISSelectInputSource` trong framework Carbon) để thực thi hai hàm trên. (Với Linux/Windows ta chỉ cần viết file stub rỗng để không lỗi build).
 3. **Gắn vào App Lifecycle (App/Modes):** Khi một chế độ (như Grid, Hints) được gọi `Activate()` trong `internal/app/modes/`, ta sẽ lưu lại bộ gõ hiện tại và gọi hàm Set sang `com.apple.keylayout.ABC`. Khi gọi `Deactivate()`, ta sẽ khôi phục lại.
 
 **Một rủi ro cần lưu ý:**
@@ -256,7 +258,7 @@ import "C"   // ← depguard sẽ báo lỗi ngay đây
 
 ## Nhìn vào một Port thực tế để thấy pattern
 
-`system.go` trong `internal/core/ports/` có `SecureInputPort`:
+`system.go` trong `v1.31/internal/core/ports/` có `SecureInputPort`:
 
 ```go
 // SecureInputPort defines the interface for secure input detection
@@ -266,7 +268,7 @@ type SecureInputPort interface {
 }
 ```
 
-Interface này **không biết** về macOS API. Nhưng đâu đó trong `internal/core/infra/platform/darwin/` có một file `.go` với `//go:build darwin` implement nó bằng CGO + Objective-C.
+Interface này **không biết** về macOS API. Nhưng đâu đó trong `v1.31/internal/core/infra/platform/darwin/` có một file `.go` với `//go:build darwin` implement nó bằng CGO + Objective-C.
 
 Handler chỉ nhận `SecureInputPort` qua constructor — nó không quan tâm implementation là gì.
 
@@ -322,7 +324,7 @@ func setModeLocked(...) {
 
 ### 2. Sự ngăn cấm của Kiến trúc (Hexagonal Architecture & Depguard)
 *   **Giải thích:** Tác giả nhấn mạnh: *"Neru cấm điều này — `depguard` sẽ báo lỗi."*
-*   **Depguard là gì?** Nó là một công cụ linter (kiểm tra lỗi code tự động) được cấu hình sẵn trong dự án Neru. Công cụ này được set up một luật thép: **Bất kỳ file nào nằm trong thư mục `internal/app` hoặc `internal/core/domain` mà dám `import` các thư viện gắn mác OS (như Carbon, Cocoa, Cgo...) thì tự động báo lỗi không cho biên dịch.**
+*   **Depguard là gì?** Nó là một công cụ linter (kiểm tra lỗi code tự động) được cấu hình sẵn trong dự án Neru. Công cụ này được set up một luật thép: **Bất kỳ file nào nằm trong thư mục `internal/app` hoặc `v1.31/internal/core/domain` mà dám `import` các thư viện gắn mác OS (như Carbon, Cocoa, Cgo...) thì tự động báo lỗi không cho biên dịch.**
 *   **Tại sao lại cấm?** Vì cốt lõi của Kiến trúc Lục giác (Hexagonal) là: *Core logic phải hoàn toàn "mù tịt" về thế giới bên ngoài*. Core không được biết nó đang chạy trên Mac, Windows hay Linux. Nếu anh nhét code macOS vào Core, mai mốt đem sang Linux biên dịch sẽ bị lỗi (panic) ngay lập tức vì Linux không có thư viện Carbon.
 
 ### 3. Đường ống 3 lớp (The Pipeline)
